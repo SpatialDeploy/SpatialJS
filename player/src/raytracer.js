@@ -238,7 +238,7 @@ async function create_quad_pipeline(inst)
 	//-----------------
 	const pipeline = inst.device.createRenderPipeline({
         label: 'quad render pipeline',
-        layout: 'auto', //automatically generate binding group (interesting feature...)
+        layout: 'auto', //automatically generate binding group
         vertex: {
 			entryPoint: 'vs',
 			module,
