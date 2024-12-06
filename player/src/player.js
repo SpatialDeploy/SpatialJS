@@ -20,6 +20,10 @@ const RESOLUTION_SCALE = 2; //multiplier on the canvas resolution to fix low-res
 
 async function main()
 {
+	//load splv decoder module:
+	//-----------------
+	const DecoderModule = await SPLDecoder()
+
 	//add canvases to DOM:
 	//-----------------	
 	let canvas = document.createElement('canvas');
