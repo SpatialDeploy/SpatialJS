@@ -2,14 +2,50 @@
 
 #include <iostream>
 #include <fstream>
+#include <streambuf>
+#include <vector>
 
 //-------------------------//
 
-SPLVDecoder::SPLVDecoder(std::string videoPath)
+class Uint8VectorStream : public std::basic_istream<char> 
 {
-	//open file:
+private:
+    class Uint8VectorStreamBuf : public std::streambuf 
+	{
+    private:
+        std::vector<uint8_t>& m_vec;
+        char_type* m_begin;
+        char_type* m_end;
+
+    public:
+        explicit Uint8VectorStreamBuf(std::vector<uint8_t>& vec) 
+            : m_vec(vec), 
+              m_begin(reinterpret_cast<char_type*>(m_vec.data())),
+              m_end(m_begin + m_vec.size()) {
+            setg(m_begin, m_begin, m_end);
+        }
+    };
+
+    Uint8VectorStreamBuf m_streambuf;
+
+public:
+    explicit Uint8VectorStream(std::vector<uint8_t>& vec)
+        : std::basic_istream<char>(&m_streambuf), m_streambuf(vec) 
+	{
+
+	}
+};
+
+//-------------------------//
+
+SPLVDecoder::SPLVDecoder(emscripten::val videoBuf)
+{
+	//create stream from input buffer:
 	//-----------------	
-	std::ifstream file(videoPath, std::ios::binary);
+    emscripten::val memoryView = videoBuf.call<emscripten::val>("slice");
+    std::vector<uint8_t> buffer = emscripten::vecFromJSArray<uint8_t>(memoryView);
+
+	auto file = Uint8VectorStream(buffer);
 
 	//read metadata:
 	//-----------------
@@ -54,7 +90,21 @@ SPLVDecoder::SPLVDecoder(std::string videoPath)
 	uint32_t mapHeight = m_metadata.height / BRICK_SIZE;
 	uint32_t mapDepth = m_metadata.depth / BRICK_SIZE;
 
-	m_mapLen = mapWidth * mapHeight * mapDepth;
+	m_mapLen = mapWidth * mapHeight * mapDepth * sizeof(uint32_t);
+}
+
+SPLVDecoder::~SPLVDecoder()
+{
+	if(m_frames == nullptr)
+		return;
+
+	for(uint32_t i = 0; i < m_metadata.framecount; i++)
+	{
+		if(m_frames[i].data != nullptr)
+			delete m_frames[i].data;
+	}
+	
+	delete m_frames;
 }
 
 SPLVMetadata SPLVDecoder::get_metadata()
@@ -94,8 +144,9 @@ EMSCRIPTEN_BINDINGS(splv_decoder) {
 		;
 
 	emscripten::class_<SPLVDecoder>("SPLVDecoder")
-		.constructor<std::string>()
+		.constructor<emscripten::val>()
 		.function("get_metadata", &SPLVDecoder::get_metadata)
 		.function("get_map_buffer", &SPLVDecoder::get_map_buffer)
+		.function("get_brick_buffer", &SPLVDecoder::get_brick_buffer)
 		;
 }

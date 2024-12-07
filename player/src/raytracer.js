@@ -10,6 +10,8 @@ import {vec3, mat4} from './math.js';
 const WORKGROUP_SIZE_X = 8;
 const WORKGROUP_SIZE_Y = 8;
 
+const BRICK_SIZE = 8;
+
 const BYTES_PER_ROW_ALIGNMENT = 256;
 
 //-------------------------//
@@ -93,8 +95,11 @@ export async function render_raytracer(state, videoFrameBufs, view, proj, timest
 	uniformBufFloatData.set(invView, 0);
 	uniformBufFloatData.set(invProj, invView.length);
 
+	let mapWidth = videoFrameBufs.volumeSize.width / BRICK_SIZE
+	let mapHeight = videoFrameBufs.volumeSize.height / BRICK_SIZE
+	let mapDepth = videoFrameBufs.volumeSize.depth / BRICK_SIZE
 	uniformBufUintData.set(
-		[videoFrameBufs.volumeSize.width, videoFrameBufs.volumeSize.height, videoFrameBufs.volumeSize.depth],
+		[mapWidth, mapHeight, mapDepth],
 		invView.length + invProj.length
 	);
 
@@ -129,11 +134,6 @@ export async function render_raytracer(state, videoFrameBufs, view, proj, timest
 	//-----------------
 	const commandBuffer = encoder.finish();
 	state.inst.device.queue.submit([ commandBuffer ]);
-}
-
-export async function cleanup_render_raytracer(state)
-{
-	state.finalTexture.buf.unmap();
 }
 
 export function resize_raytracer(state, width, height)
@@ -363,8 +363,8 @@ function create_bind_groups(inst, raytracePipeline, quadPipeline, finalTexture, 
 		entries: [
 			{ binding: 0, resource: textureView },
 			{ binding: 1, resource: { buffer: raytraceUniformBuf } },
-			{ binding: 2, resource: { buffer: videoFrameBufs.bitmapBuf } },
-			{ binding: 3, resource: { buffer: videoFrameBufs.voxelDataBuf } }
+			{ binding: 2, resource: { buffer: videoFrameBufs.mapBuf } },
+			{ binding: 3, resource: { buffer: videoFrameBufs.brickBuf } }
 		]
 	});
 

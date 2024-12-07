@@ -36,7 +36,8 @@ struct SPLVFrame
 class SPLVDecoder
 {
 public:
-	SPLVDecoder(std::string videoPath);
+	SPLVDecoder(emscripten::val videoBuf);
+	~SPLVDecoder();
 
 	SPLVMetadata get_metadata();
 	emscripten::val get_map_buffer(uint32_t frame);

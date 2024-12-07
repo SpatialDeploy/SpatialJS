@@ -7,7 +7,6 @@ import {
 	init_raytracer, 
 	render_raytracer, 
 	resize_raytracer,
-	cleanup_render_raytracer, 
 } from "./raytracer.js";
 
 import {vec3, mat4} from './math.js';	
@@ -34,14 +33,15 @@ async function main()
 
 	//populate state object:
 	//-----------------
-	var testVideo;
+	var videoDecoder; //NOTE: need to call videoDecoder.delete() to avoid memory leak!!!!!
 	try
 	{
-		testVideo = await fetch_video_file('videos/ufc.json');
+		let video = await fetch_video_file("videos/illaoi.splv")
+		videoDecoder = new DecoderModule.SPLVDecoder(new Uint8Array(video))
 	}
 	catch(e)
 	{
-		throw Error(`failed to fetch video file with error \"${e.message}\"`);
+		throw Error(`failed to instantiate video decoder with error \"${e.message}\"`);
 	}
 
 	let startTime = 0; 
@@ -49,7 +49,7 @@ async function main()
 	let camera = camera_init();
 
 	let state = {
-		testVideo: testVideo,
+		videoDecoder: videoDecoder,
 		startTime: startTime,
 		lastFrame: lastFrame,
 		camera: camera
@@ -113,18 +113,20 @@ async function render(state, raytraceState, timestamp)
 	if(state.startTime == 0)
 		state.startTime = timestamp;
 
+	let metadata = state.videoDecoder.get_metadata()
+
 	let curTime = timestamp - state.startTime;
-	let frame = Math.floor((curTime / 1000) * state.testVideo.Framerate);
-	frame = frame % state.testVideo.Framecount;
+	let frame = Math.floor((curTime / 1000) * metadata.framerate);
+	frame = frame % metadata.framecount;
 
 	if(state.lastFrame != frame)
 	{
 		if(state.nextFrame == undefined || state.nextFrame.num != frame)
-			state.videoFrameBufs = get_video_frame_bufs(raytraceState.inst, state.testVideo, frame);
+			state.videoFrameBufs = get_video_frame_bufs(raytraceState.inst, state.videoDecoder, frame);
 		else
 			state.videoFrameBufs = await state.nextFrame.promise;
 
-		const nextFrameNum = (frame + 1) % state.testVideo.Framecount;
+		const nextFrameNum = (frame + 1) % metadata.framecount;
 
 		//TODO: get bufs for multiple frames at once
 		//TODO: get bufs in separate worker thread, not just async
@@ -133,7 +135,7 @@ async function render(state, raytraceState, timestamp)
 		state.nextFrame = {
 			num: nextFrameNum,
 			promise: new Promise(function(resolve, reject) {
-				resolve(get_video_frame_bufs(raytraceState.inst, state.testVideo, nextFrameNum));
+				resolve(get_video_frame_bufs(raytraceState.inst, state.videoDecoder, nextFrameNum));
 			})
 		};
 	}
@@ -154,75 +156,45 @@ async function render(state, raytraceState, timestamp)
 //-------------------------//
 
 //gets the frame of a video as buffers to render
-function get_video_frame_bufs(inst, video, frame)
+function get_video_frame_bufs(inst, videoDecoder, frame)
 {
-	//TODO: currently just procedurally generating a frame
-
-	//extract size + other metadata:
+	//extract size from metadata:
 	//-----------------
+	let metadata = videoDecoder.get_metadata()
 	let size = {
-		width: video.Dimensions.x,
-		height: video.Dimensions.z, //need to swap dimensions around, format array is flattened differently
-		depth: video.Dimensions.y
+		width: metadata.width,
+		height: metadata.height, //need to swap dimensions around, format array is flattened differently
+		depth: metadata.depth
 	};
 
-	//allocate bitmap and voxel buffer:
+	//get frames from decoder:
 	//-----------------
-	let bitmapSize = size.width * size.height * size.depth;
-	bitmapSize = (bitmapSize + 31) & ~31; //align up to multiple of 32
-	bitmapSize /= 32; //32 bits per uint32
-	let bitmap = new Uint32Array(bitmapSize);
-
-	let voxelDataSize = size.width * size.height * size.depth;
-	let voxelData = new Uint32Array(voxelDataSize); //1 uint32 per voxel (RGB color, 8 bits per component)
-
-	//populate bitmap and voxel buffer:
-	//-----------------
-	for(let z = 0; z < size.depth ; z++)
-	for(let y = 0; y < size.height; y++)
-	for(let x = 0; x < size.width ; x++)
-	{
-		let idx = x + size.width * (y + size.height * z);
-		let readIdx = x + size.width * (z + size.depth * y);
-
-		let voxel = video.Blocks[frame][readIdx];
-		if(voxel !== null)
-		{
-			bitmap[Math.floor(idx / 32)] |= (1 << (idx % 32));
-
-			const r = parseInt(voxel.slice(1, 3), 16);
-			const g = parseInt(voxel.slice(3, 5), 16);
-			const b = parseInt(voxel.slice(5, 7), 16);
-			const packedColor = (r << 24) | (g << 16) | (b << 8);
-
-			voxelData[idx] = packedColor;
-		}
-		else
-			bitmap[Math.floor(idx / 32)] &= ~(1 << (idx % 32));
-	}
+	let mapBuf = videoDecoder.get_map_buffer(frame)
+	let brickBuf = videoDecoder.get_brick_buffer(frame)
+	//console.log(brickBuf)
 
 	//upload buffers to WebGPU buffers:
 	//-----------------
-	let bitmapBuf = inst.device.createBuffer({
-		label: 'voxel bitmap buf',
-		size: bitmap.length * Uint32Array.BYTES_PER_ELEMENT,
+	let mapBufGPU = inst.device.createBuffer({
+		label: 'voxel map buf',
+		size: mapBuf.length * Uint32Array.BYTES_PER_ELEMENT,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
 	});
-	inst.device.queue.writeBuffer(bitmapBuf, 0, bitmap);
+	inst.device.queue.writeBuffer(mapBufGPU, 0, mapBuf);
 
-	let voxelDataBuf = inst.device.createBuffer({
-		label: 'voxel data buf',
-		size: voxelData.length * Uint32Array.BYTES_PER_ELEMENT,
+	let brickBufGPU = inst.device.createBuffer({
+		label: 'voxel brick buf',
+		size: brickBuf.length * Uint32Array.BYTES_PER_ELEMENT,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
 	});
-	inst.device.queue.writeBuffer(voxelDataBuf, 0, voxelData);
+	inst.device.queue.writeBuffer(brickBufGPU, 0, brickBuf);
 
 	//return:
 	//-----------------
 	return {
 		volumeSize: size,
-		bitmapBuf: bitmapBuf,
-		voxelDataBuf: voxelDataBuf
+		mapBuf : mapBufGPU,
+		brickBuf : brickBufGPU
 	};
 }
 
@@ -308,26 +280,6 @@ function camera_scrolled(camera, deltaY)
 
 //-------------------------//
 
-//creates a webgl shader
-function create_shader(gl, type, source) 
-{
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-
-    return shader;
-}
-
-//loads shader source code from a given url
-async function fetch_shader_src(url)
-{
-	const response = await fetch(url);
-	if(!response.ok)
-		throw Error(`failed to load shader from ${url} with status ${response.statusText}`);
-
-	return response.text();
-}
-
 //loads a voxel video file from a given url
 async function fetch_video_file(url)
 {
@@ -335,7 +287,7 @@ async function fetch_video_file(url)
 	if(!response.ok)
 		throw Error(`failed to load json from ${url} with status ${response.statusText}`);
 
-	return response.json();
+	return await response.arrayBuffer()
 }
 
 //-------------------------//

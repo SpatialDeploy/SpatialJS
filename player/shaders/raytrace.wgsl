@@ -5,6 +5,13 @@
 
 const EPSILON = 0.0001;
 
+const BRICK_SIZE = 8;
+const BRICK_BITMAP_LEN = (((BRICK_SIZE * BRICK_SIZE * BRICK_SIZE + 31) & (~31)) / 32);
+const BRICK_COLORS_LEN = (BRICK_SIZE * BRICK_SIZE * BRICK_SIZE);
+const BRICK_STRIDE = (BRICK_BITMAP_LEN + BRICK_COLORS_LEN);
+
+const EMPTY_BRICK = 0xFFFFFFFF;
+
 //-------------------------//
 
 struct RenderParams
@@ -12,26 +19,20 @@ struct RenderParams
 	invView : mat4x4f,
 	invProj : mat4x4f,
 	
-	volumeSize : vec3u
+	mapSize : vec3u
 }
 
 //-------------------------//
 
-@group(0) @binding(0) var u_outImage : texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(0) var u_outTexture : texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(1) var<uniform> u_renderParams : RenderParams;
 
-@group(0) @binding(2) var<storage, read> u_voxelBitmap : array<u32>;
-@group(0) @binding(3) var<storage, read> u_voxelData : array<u32>;
+@group(0) @binding(2) var<storage, read> u_map : array<u32>;
+@group(0) @binding(3) var<storage, read> u_bricks : array<u32>;
 
 //-------------------------//
 
-struct IntersectAABBOut
-{
-	distances : vec2f,
-	mask : vec3u
-};
-
-fn intersect_aabb(boxMin : vec3f, boxMax : vec3f, rayPos : vec3f, invRayDir : vec3f) -> IntersectAABBOut
+fn intersect_aabb(boxMin : vec3f, boxMax : vec3f, rayPos : vec3f, invRayDir : vec3f) -> vec2f
 {
 	let tMin = (boxMin - rayPos) * invRayDir;
 	let tMax = (boxMax - rayPos) * invRayDir;
@@ -39,153 +40,11 @@ fn intersect_aabb(boxMin : vec3f, boxMax : vec3f, rayPos : vec3f, invRayDir : ve
 	let t1 = min(tMin, tMax);
 	let t2 = max(tMin, tMax);
 
-	var tNear : f32;
-	var mask : vec3u;
-	if(t1.x > t1.y)
-	{
-		if(t1.x > t1.z)
-		{
-			tNear = t1.x;
-			mask = vec3u(1, 0, 0);
-		}
-		else
-		{
-			tNear = t1.z;
-			mask = vec3u(0, 0, 1);
-		}
-	}
-	else
-	{
-		if(t1.y > t1.z)
-		{
-			tNear = t1.y;
-			mask = vec3u(0, 1, 0);
-		}
-		else
-		{
-			tNear = t1.z;
-			mask = vec3u(0, 0, 1);
-		}
-	}
-
+	let tNear = max(max(t1.x, t1.y), t1.z);
 	let tFar = min(min(t2.x, t2.y), t2.z);
 
-	var retval : IntersectAABBOut;
-	retval.distances = vec2f(tNear, tFar);
-	retval.mask = mask;
-
-	return retval;
+	return vec2f(tNear, tFar);
 }
-
-//-------------------------//
-
-fn in_bounds(pos : vec3u) -> bool
-{
-	return pos.x < u_renderParams.volumeSize.x && pos.y < u_renderParams.volumeSize.y && pos.z < u_renderParams.volumeSize.z;
-}
-
-fn voxel_exists(pos : vec3u) -> bool
-{
-	let idx = pos.x + u_renderParams.volumeSize.x * (pos.y + u_renderParams.volumeSize.y * pos.z);
-	let arrIdx = idx / 32;
-	let bitIdx = idx % 32;
-
-	return (u_voxelBitmap[arrIdx] & (1u << bitIdx)) != 0;
-}
-
-fn get_voxel_color(pos : vec3u) -> vec3f
-{
-	let idx = pos.x + u_renderParams.volumeSize.x * (pos.y + u_renderParams.volumeSize.y * pos.z);
-	let packedColor = u_voxelData[idx];
-
-	let r = (packedColor >> 24) & 0xFF;
-	let g = (packedColor >> 16) & 0xFF;
-	let b = (packedColor >> 8) & 0xFF;
-
-	return vec3f(f32(r) / 255.0, f32(g) / 255.0, f32(b) / 255.0);
-}
-
-struct IntersectVolumeOut
-{
-	hit : bool,
-	mask : vec3u,
-	color : vec3f
-};
-
-//simple DDA voxel traversal algorithm
-//http://www.cse.yorku.ca/~amana/research/grid.pdf
-//https://www.shadertoy.com/view/4dX3zl
-fn intersect_volume(rayPos : vec3f, rayDir : vec3f, invRayDir : vec3f, initialMask : vec3u) -> IntersectVolumeOut
-{
-	let localRayPos = rayPos * vec3f(u_renderParams.volumeSize);
-
-	var mapPos = vec3u(floor(localRayPos));
-	let deltaDist = abs(invRayDir);
-	let step = vec3i(sign(rayDir));
-	var sideDist : vec3f = (sign(rayDir) * (vec3f(mapPos) - localRayPos) + (sign(rayDir) * 0.5) + 0.5) * deltaDist;
-	var lastSideDist = vec3f(0.0);
-	var mask = initialMask;
-
-	var hit = false;
-	while(in_bounds(mapPos))
-	{
-		if(voxel_exists(mapPos))
-		{
-			hit = true;
-			break;
-		}
-
-		lastSideDist = sideDist;
-
-		if(sideDist.x < sideDist.y)
-		{
-			if(sideDist.x < sideDist.z)
-			{
-				mask = vec3u(1, 0, 0);
-				sideDist.x += deltaDist.x;
-				mapPos.x += u32(step.x);
-			}
-			else
-			{
-				mask = vec3u(0, 0, 1);
-				sideDist.z += deltaDist.z;
-				mapPos.z += u32(step.z);
-			}
-		}
-		else
-		{
-			if(sideDist.y < sideDist.z)
-			{
-				mask = vec3u(0, 1, 0);
-				sideDist.y += deltaDist.y;
-				mapPos.y += u32(step.y);
-			}
-			else
-			{
-				mask = vec3u(0, 0, 1);
-				sideDist.z += deltaDist.z;
-				mapPos.z += u32(step.z);
-			}
-		}
-	}
-
-	var retval : IntersectVolumeOut;
-	retval.hit = hit;
-	retval.mask = mask;
-
-	if(hit)
-	{
-		retval.color = get_voxel_color(mapPos);
-	}
-	else
-	{
-		retval.color = vec3f(0.0);
-	}
-
-	return retval;
-}
-
-//-------------------------//
 
 fn background_color(rayDir : vec3f) -> vec3f
 {
@@ -195,12 +54,198 @@ fn background_color(rayDir : vec3f) -> vec3f
 
 //-------------------------//
 
+fn in_brick_bounds(pos : vec3u) -> bool
+{
+	return pos.x < BRICK_SIZE && pos.y < BRICK_SIZE && pos.z < BRICK_SIZE;
+}
+
+fn voxel_exists(brick : u32, pos : vec3u) -> bool
+{
+	let idx = pos.x + BRICK_SIZE * (pos.y + BRICK_SIZE * pos.z);
+	let arrIdx = idx / 32;
+	let bitIdx = idx % 32;
+
+	return (u_bricks[brick * BRICK_STRIDE + arrIdx] & u32(1 << bitIdx)) != 0;
+}
+
+fn get_voxel_color(brick : u32, pos : vec3u) -> vec3f
+{
+	let idx = pos.x + BRICK_SIZE * (pos.y + BRICK_SIZE * pos.z);
+	let packedColor = u_bricks[brick * BRICK_STRIDE + BRICK_BITMAP_LEN + idx];
+
+	let r = (packedColor >> 24) & 0xFF;
+	let g = (packedColor >> 16) & 0xFF;
+	let b = (packedColor >> 8) & 0xFF;
+
+	return vec3f(f32(r) / 255.0, f32(g) / 255.0, f32(b) / 255.0);
+}
+
+struct IntersectBrickOut
+{
+	hit : bool,
+	color : vec3f
+}
+
+fn intersect_brick(brick : u32, rayPosIn : vec3f, rayDir : vec3f, deltaDist : vec3f, step : vec3i) -> IntersectBrickOut
+{
+	let rayPos = rayPosIn * vec3f(BRICK_SIZE, BRICK_SIZE, BRICK_SIZE);
+
+	var pos = vec3u(floor(rayPos));
+	var sideDist = (sign(rayDir) * (vec3f(pos) - rayPos) + (sign(rayDir) * 0.5) + 0.5) * deltaDist;
+
+	var hit = false;
+	while(in_brick_bounds(pos))
+	{
+		if(voxel_exists(brick, pos))
+		{
+			hit = true;
+			break;
+		}
+
+		if(sideDist.x < sideDist.y)
+		{
+			if(sideDist.x < sideDist.z)
+			{
+				sideDist.x += deltaDist.x;
+				pos.x += u32(step.x);
+			}
+			else
+			{
+				sideDist.z += deltaDist.z;
+				pos.z += u32(step.z);
+			}
+		}
+		else
+		{
+			if(sideDist.y < sideDist.z)
+			{
+				sideDist.y += deltaDist.y;
+				pos.y += u32(step.y);
+			}
+			else
+			{
+				sideDist.z += deltaDist.z;
+				pos.z += u32(step.z);
+			}
+		}
+	}
+
+	var retval : IntersectBrickOut;
+	retval.hit = hit;
+
+	if(hit)
+	{
+		retval.color = get_voxel_color(brick, pos);
+	}
+	else
+	{
+		retval.color = vec3f(0.0, 0.0, 0.0);
+	}
+
+	return retval;
+}
+
+//-------------------------//
+
+fn in_map_bounds(pos : vec3u) -> bool
+{
+	return pos.x < u_renderParams.mapSize.x && pos.y < u_renderParams.mapSize.y && pos.z < u_renderParams.mapSize.z;
+}
+
+fn get_brick(pos : vec3u) -> u32
+{
+	let idx = pos.x + u_renderParams.mapSize.x * (pos.y + u_renderParams.mapSize.y * pos.z);
+	return u_map[idx];
+}
+
+struct IntersectMapOut
+{
+	hit : bool,
+	color : vec3f
+}
+
+fn intersect_map(rayPosIn : vec3f, rayDir : vec3f, invRayDir : vec3f) -> IntersectMapOut
+{
+	let rayPos = rayPosIn * vec3f(u_renderParams.mapSize);
+
+	var mapPos = vec3u(floor(rayPos));
+	let deltaDist = abs(invRayDir);
+	let step = vec3i(sign(rayDir));
+	var sideDist = (sign(rayDir) * (vec3f(mapPos) - rayPos) + (sign(rayDir) * 0.5) + 0.5) * deltaDist;
+	var lastSideDist = vec3f(0.0, 0.0, 0.0);
+
+	var brickHit : IntersectBrickOut;
+
+	var hit = false;
+	while(in_map_bounds(mapPos))
+	{
+		let brick = get_brick(mapPos);
+		if(brick != EMPTY_BRICK)
+		{
+			var curRayPos = rayPos + rayDir * (min(min(lastSideDist.x, lastSideDist.y), lastSideDist.z) + EPSILON);
+			curRayPos -= vec3f(mapPos);
+
+			brickHit = intersect_brick(brick, curRayPos, rayDir, deltaDist, step);
+			if(brickHit.hit)
+			{
+				hit = true;
+				break;
+			}
+		}
+
+		lastSideDist = sideDist;
+
+		if(sideDist.x < sideDist.y)
+		{
+			if(sideDist.x < sideDist.z)
+			{
+				sideDist.x += deltaDist.x;
+				mapPos.x += u32(step.x);
+			}
+			else
+			{
+				sideDist.z += deltaDist.z;
+				mapPos.z += u32(step.z);
+			}
+		}
+		else
+		{
+			if(sideDist.y < sideDist.z)
+			{
+				sideDist.y += deltaDist.y;
+				mapPos.y += u32(step.y);
+			}
+			else
+			{
+				sideDist.z += deltaDist.z;
+				mapPos.z += u32(step.z);
+			}
+		}
+	}
+
+	var retval : IntersectMapOut;
+	retval.hit = hit;
+
+	if(hit)
+	{
+		retval.color = brickHit.color;
+	}
+	else
+	{
+		retval.color = vec3f(0.0, 0.0, 0.0);
+	}
+
+	return retval;
+}
+
+//-------------------------//
+
 @compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) id : vec3u, @builtin(num_workgroups) numWorkgroups : vec3u)
 {
 	//skip pixels out of texture bounds (happens due to workgroup size):
 	//---------------
 	let writePos = vec2u(id.x, id.y);
-	let texSize = textureDimensions(u_outImage);
+	let texSize = textureDimensions(u_outTexture);
 	if(writePos.x >= texSize.x || writePos.y >= texSize.y) //if image dims arent multiples of workgroup size some edge pixels must be discarded
 	{
 		return;
@@ -223,35 +268,34 @@ fn background_color(rayDir : vec3f) -> vec3f
 
 	//check for intersection with bounding cube:
 	//---------------
-	let maxSize = max(max(u_renderParams.volumeSize.x, u_renderParams.volumeSize.y), u_renderParams.volumeSize.z);
-	let volumeMin = -vec3f(u_renderParams.volumeSize) / f32(maxSize);
-	let volumeMax =  vec3f(u_renderParams.volumeSize) / f32(maxSize);
+	let maxSize = max(max(u_renderParams.mapSize.x, u_renderParams.mapSize.y), u_renderParams.mapSize.z);
+	let volumeMin = -vec3f(u_renderParams.mapSize) / f32(maxSize);
+	let volumeMax =  vec3f(u_renderParams.mapSize) / f32(maxSize);
 
 	let intersect = intersect_aabb(volumeMin, volumeMax, rayPos, invRayDir);
-	let intersectDists = intersect.distances;
-	let intersectMask = intersect.mask;
 
+	//trace through volume:
+	//---------------
 	var color : vec3f;
-	if(intersectDists.x > intersectDists.y || intersectDists.y < 0.0)
+	if(intersect.x > intersect.y || intersect.y < 0.0)
 	{
 		color = background_color(rayDir);
 	}
 	else
 	{
 		var startRayPos = rayPos;
-		if(intersectDists.x > 0.0)
+		if(intersect.x > 0.0)
 		{
-			startRayPos += rayDir * (intersectDists.x + EPSILON);
+			startRayPos += rayDir * (intersect.x + EPSILON);
 		}
 		startRayPos -= volumeMin;
 		startRayPos /= (volumeMax - volumeMin);
 
-		let result = intersect_volume(startRayPos, rayDir, invRayDir, intersectMask);
+		let result = intersect_map(startRayPos, rayDir, invRayDir);
 
 		if(result.hit)
 		{
-			//let light = dot(vec3f(result.mask), vec3f(0.8, 1.0, 0.6));
-			color = result.color;// * light;
+			color = result.color;
 		}
 		else
 		{
@@ -261,5 +305,5 @@ fn background_color(rayDir : vec3f) -> vec3f
 
 	//write final color:
 	//---------------
-	textureStore(u_outImage, writePos, vec4f(color, 1.0));
+	textureStore(u_outTexture, writePos, vec4f(color, 1.0));
 }
