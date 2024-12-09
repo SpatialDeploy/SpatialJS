@@ -31,6 +31,11 @@ async function main()
 
 	document.body.appendChild(canvas);
 
+	//get video controls elements:
+	//-----------------
+	const playButton = document.getElementById("play_button");
+	const videoScrubber = document.getElementById("video_scrubber");
+
 	//populate state object:
 	//-----------------
 	var videoDecoder; //NOTE: need to call videoDecoder.delete() to avoid memory leak!!!!!
@@ -44,14 +49,16 @@ async function main()
 		throw Error(`failed to instantiate video decoder with error \"${e.message}\"`);
 	}
 
-	let startTime = 0; 
-	let lastFrame = -1;
 	let camera = camera_init();
 
 	let state = {
 		videoDecoder: videoDecoder,
-		startTime: startTime,
-		lastFrame: lastFrame,
+		videoScrubber: videoScrubber,
+		lastTime: 0,
+		videoTime: 0,
+		lastFrame: -1,
+		playing: true,
+		scrubbing: false,
 		camera: camera
 	};
 
@@ -102,21 +109,66 @@ async function main()
 		camera_scrolled(state.camera, event.deltaY);
 		event.preventDefault();
 	});
+
+	//set up observers for video controls:
+	//-----------------
+	if(playButton == null)
+		console.warn("play button element was not found!")
+	else
+	{
+		playButton.addEventListener('click', function() {
+			play_button_clicked(state, playButton);
+		});
+	}
+
+	if(videoScrubber == null)
+		console.warn("video scrubber element was not found!")
+	else
+	{
+		videoScrubber.addEventListener('input', function() {
+			video_scrubber_moved(state, videoScrubber);
+		});
+
+		videoScrubber.addEventListener('mousedown', function() {
+			state.scrubbing = true;
+		});
+
+		videoScrubber.addEventListener('mouseup', function() {
+			state.scrubbing = false;
+		});
+	}
 }
 
 //-------------------------//
 
 async function render(state, raytraceState, timestamp) 
 {
-	//update video frame if necessary:
+	//update timing:
 	//-----------------
-	if(state.startTime == 0)
-		state.startTime = timestamp;
+	if(state.lastTime == 0)
+		state.lastTime = timestamp;
 
 	let metadata = state.videoDecoder.get_metadata()
 
-	let curTime = timestamp - state.startTime;
-	let frame = Math.floor((curTime / 1000) * metadata.framerate);
+	let dt = timestamp - state.lastTime;
+	state.lastTime = timestamp;
+	if(state.playing && !state.scrubbing)
+		state.videoTime += dt;
+
+	//update video scrubber position:
+	//-----------------
+	if(!state.scrubbing && state.videoScrubber != null)
+	{
+		var progress = ((state.videoTime / 1000) / metadata.duration) % 1.0;
+		progress *= 100.0
+
+		state.videoScrubber.value = progress;
+		state.videoScrubber.style.setProperty('--progress-width', `${progress}%`)
+	}
+
+	//get current frame:
+	//-----------------
+	let frame = Math.floor((state.videoTime / 1000) * metadata.framerate);
 	frame = frame % metadata.framecount;
 
 	if(state.lastFrame != frame)
@@ -196,6 +248,32 @@ function get_video_frame_bufs(inst, videoDecoder, frame)
 		mapBuf : mapBufGPU,
 		brickBuf : brickBufGPU
 	};
+}
+
+//-------------------------//
+
+function play_button_clicked(state, playButton)
+{
+	if (state.playing) 
+	{
+		playButton.textContent = '▶️';
+		state.playing = false;
+	} 
+	else 
+	{
+		playButton.textContent = '⏸️';
+		state.playing = true;
+	}
+}
+
+function video_scrubber_moved(state, videoScrubber)
+{
+	const progress = videoScrubber.value / 100.0;
+
+	let metadata = state.videoDecoder.get_metadata()
+	state.videoTime = metadata.duration * progress * 1000.0; //milliseconds
+
+	videoScrubber.style.setProperty('--progress-width', `${videoScrubber.value}%`)
 }
 
 //-------------------------//

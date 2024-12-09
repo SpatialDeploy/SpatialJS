@@ -7,9 +7,74 @@
 			margin: 0;
 			height: 100%;
 		}
+
+        .video_container {
+            position: relative;
+            width: 640px;
+            height: 360px;
+            background-color: #000;
+        }
+        
+        .video_controls {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            padding: 20px 0;
+            background-blend-mode: darken;
+            background: 
+				linear-gradient(
+					rgba(0,0,0,0), 
+					rgba(0,0,0,0.2)
+            	);
+        }
+        
+        #play_button {
+            font-size: 48px;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        #video_scrubber {
+            width: 400px;
+            height: 15px;
+            background: linear-gradient(to right, 
+                #3498db 0%, 
+                #3498db var(--progress-width, 0%), 
+                #ccc var(--progress-width, 0%), 
+                #ccc 100%
+            );
+            cursor: pointer;
+            appearance: none;
+            outline: none;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        
+        #video_scrubber:hover {
+            opacity: 1;
+        }
+        
+        #video_scrubber::-webkit-slider-thumb {
+            appearance: none;
+            width: 17px;
+            height: 17px;
+            background: #ffffff;
+            cursor: pointer;
+            border-radius: 50%;
+        }
 	</style>
 
 	<body>
+        <div class="video_controls">
+            <div id="play_button">⏸️</div>
+            <input type="range" id="video_scrubber" min="0" max="100" value="0">
+        </div>
+
 		<script src="src/spl_decoder.js"></script>
 		<script src="src/player.js" type="module"></script>
 	</body>
