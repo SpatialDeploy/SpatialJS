@@ -9,7 +9,8 @@ import {
 	resize_raytracer,
 } from "./raytracer.js";
 
-import {vec3, mat4} from './math.js';	
+import {vec3, mat4} from './math.js';
+import {SPLDecoder} from './spl_decoder.js'
 
 //-------------------------//
 
@@ -17,7 +18,7 @@ const RESOLUTION_SCALE = 2; //multiplier on the canvas resolution to fix low-res
 
 //-------------------------//
 
-async function main()
+async function main(root, videoPath)
 {
 	//load splv decoder module:
 	//-----------------
@@ -26,22 +27,29 @@ async function main()
 	//add canvases to DOM:
 	//-----------------	
 	let canvas = document.createElement('canvas');
-	canvas.id = 'canvas-webgpu';
+	canvas.id = 'canvas_webgpu';
 	canvas.style = 'display: block; width: 100%; height: 100%;'; //this is what we render to, make fullscreen
 
-	document.body.appendChild(canvas);
+	const videoContainer = root.querySelector("#video_container");
+	if(videoContainer == null)
+	{
+		console.warn('video container element was not found!')
+		root.appendChild(canvas);
+	}
+	else
+		videoContainer.appendChild(canvas);
 
 	//get video controls elements:
 	//-----------------
-	const playButton = document.getElementById("play_button");
-	const videoScrubber = document.getElementById("video_scrubber");
+	const playButton = root.querySelector("#play_button");
+	const videoScrubber = root.querySelector("#video_scrubber");
 
 	//populate state object:
 	//-----------------
 	var videoDecoder; //NOTE: need to call videoDecoder.delete() to avoid memory leak!!!!!
 	try
 	{
-		let video = await fetch_video_file("videos/illaoi.splv")
+		let video = await fetch_video_file(videoPath)
 		videoDecoder = new DecoderModule.SPLVDecoder(new Uint8Array(video))
 	}
 	catch(e)
@@ -370,6 +378,118 @@ async function fetch_video_file(url)
 
 //-------------------------//
 
-//entry point:
-main()
-	.catch((error) => alert(`FATAL ERROR: ${error.message}`));
+class SPLVPlayer extends HTMLElement 
+{
+    constructor() 
+	{
+        super();
+        this.attachShadow({ mode: 'open' });
+    }
+
+    connectedCallback() 
+	{
+        this.render();
+    }
+
+    render() 
+	{
+        this.shadowRoot.innerHTML = `
+			<style>
+				:host {
+					display: inline-block;
+					width: 100%;
+					height: 100%;
+            	}
+
+				#canvas_webgpu {
+					position: absolute;
+					bottom: 0;
+					top: 0;
+					left: 0;
+					right: 0;
+				}
+
+				#video_container {
+					position: relative;
+					width: 100%;
+					height: 100%;
+				}
+				
+				#video_controls {
+					position: absolute;
+					bottom: 0;
+					left: 0;
+					right: 0;
+					display: flex;
+					justify-content: center;
+					align-items: center;
+					gap: 20px;
+					padding: 20px 0;
+					background-blend-mode: darken;
+					z-index: 10;
+					background: 
+						linear-gradient(
+							rgba(0,0,0,0), 
+							rgba(0,0,0,0.2)
+						);
+				}
+				
+				#play_button {
+					font-size: 32px;
+					cursor: pointer;
+					user-select: none;
+				}
+				
+				#video_scrubber {
+					width: 70%;
+					height: 15px;
+					background: linear-gradient(to right, 
+						#3498db 0%, 
+						#3498db var(--progress-width, 0%), 
+						#ccc var(--progress-width, 0%), 
+						#ccc 100%
+					);
+					cursor: pointer;
+					appearance: none;
+					outline: none;
+					opacity: 0.7;
+					transition: opacity 0.2s;
+				}
+				
+				#video_scrubber:hover {
+					opacity: 1;
+				}
+				
+				#video_scrubber::-webkit-slider-thumb {
+					appearance: none;
+					width: 17px;
+					height: 17px;
+					background: #ffffff;
+					cursor: pointer;
+					border-radius: 50%;
+				}
+			</style>
+
+			<div id="video_container">
+				<div id="video_controls">
+					<div id="play_button">⏸️</div>
+					<input type="range" id="video_scrubber" min="0" max="100" value="0">
+				</div>
+			</div>
+        `;
+
+		const src = this.getAttribute('src')
+		if(src == null)
+		{
+			alert('FATAL ERROR: no source video specified');
+			return;
+		}
+
+		main(this.shadowRoot, src)
+			.catch((error) => alert(`FATAL ERROR: ${error.message}`));
+    }
+}
+
+customElements.define('splv-player', SPLVPlayer);
+
+export default SPLVPlayer;
