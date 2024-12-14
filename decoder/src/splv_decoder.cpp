@@ -70,27 +70,29 @@ SPLVDecoder::SPLVDecoder(emscripten::val videoBuf)
 	if(m_metadata.framecount == 0)
 		throw std::invalid_argument("framecount must be positive");
 
-	//copy each frame into frame array:
-	//-----------------	
-	m_frames = new SPLVFrame[m_metadata.framecount];
-
-	for(uint32_t i = 0; i < m_metadata.framecount; i++)
-	{
-		uint32_t frameSize;
-		file.read((char*)&frameSize, sizeof(uint32_t));
-
-		m_frames[i].size = frameSize;
-		m_frames[i].data = new uint8_t[frameSize];
-		file.read((char*)m_frames[i].data, frameSize);
-	}
-
-	//calculate map length:
+	//calculate size constants:
 	//-----------------	
 	uint32_t mapWidth = m_metadata.width / BRICK_SIZE;
 	uint32_t mapHeight = m_metadata.height / BRICK_SIZE;
 	uint32_t mapDepth = m_metadata.depth / BRICK_SIZE;
 
-	m_mapLen = mapWidth * mapHeight * mapDepth * sizeof(uint32_t);
+	m_mapLen = mapWidth * mapHeight * mapDepth;
+
+	m_brickBitmapLen = BRICK_SIZE * BRICK_SIZE * BRICK_SIZE;
+	m_brickBitmapLen = (m_brickBitmapLen + 31) & (~31); //align up to 32 bits (so fits in array of uint32s)
+	m_brickBitmapLen /= 4; //4 bytes per uint
+	m_brickBitmapLen /= 8; //8 bits per byte
+
+	m_brickColorsLen = BRICK_SIZE * BRICK_SIZE * BRICK_SIZE;
+
+	m_brickLen = m_brickBitmapLen + m_brickColorsLen;
+
+	//copy each frame into frame array:
+	//-----------------	
+	m_frames = new SPLVFrame[m_metadata.framecount];
+
+	for(uint32_t i = 0; i < m_metadata.framecount; i++)
+		decompress_frame(file, i);
 }
 
 SPLVDecoder::~SPLVDecoder()
@@ -117,7 +119,7 @@ emscripten::val SPLVDecoder::get_map_buffer(uint32_t frame)
 	if(frame >= m_metadata.framecount)
 		throw std::invalid_argument("out-of-range frame");
 
-	return emscripten::val(emscripten::typed_memory_view(m_mapLen, m_frames[frame].data));
+	return emscripten::val(emscripten::typed_memory_view(m_mapLen * sizeof(uint32_t), m_frames[frame].data));
 }
 
 emscripten::val SPLVDecoder::get_brick_buffer(uint32_t frame)
@@ -125,10 +127,65 @@ emscripten::val SPLVDecoder::get_brick_buffer(uint32_t frame)
 	if(frame >= m_metadata.framecount)
 		throw std::invalid_argument("out-of-range frame");
 
-	uint32_t size = m_frames[frame].size - m_mapLen;
-	uint32_t offset = m_mapLen;
+	uint32_t size = m_frames[frame].numBricks * m_brickLen * sizeof(uint32_t);
+	uint32_t offset = m_mapLen * sizeof(uint32_t);
 
 	return emscripten::val(emscripten::typed_memory_view(size, m_frames[frame].data + offset));
+}
+
+//-------------------------//
+
+void SPLVDecoder::decompress_frame(std::basic_istream<char>& file, uint32_t frameIdx)
+{
+	//read total number of bricks:
+	//-----------------	
+	uint32_t numBricks;
+	file.read((char*)&numBricks, sizeof(uint32_t));
+
+	//allocate enough memory:
+	//-----------------	
+	m_frames[frameIdx].numBricks = numBricks;
+	m_frames[frameIdx].data = new uint8_t[(m_mapLen + numBricks * m_brickLen) * sizeof(uint32_t)];
+
+	//read map:
+	//-----------------	
+	file.read((char*)m_frames[frameIdx].data, m_mapLen * sizeof(uint32_t));
+
+	//read each brick:
+	//-----------------	
+	uint32_t* curBrick = (uint32_t*)m_frames[frameIdx].data + m_mapLen;
+	for(uint32_t i = 0; i < numBricks; i++)
+	{
+		//read number of voxels
+		uint32_t numVoxels;
+		file.read((char*)&numVoxels, sizeof(uint32_t));
+
+		//read brick bitmap
+		file.read((char*)curBrick, m_brickBitmapLen * sizeof(uint32_t));
+
+		//loop over every voxel, add to color buffer if present
+		uint32_t readVoxels = 0;
+		for(uint32_t x = 0; x < BRICK_SIZE; x++)
+		for(uint32_t y = 0; y < BRICK_SIZE; y++)
+		for(uint32_t z = 0; z < BRICK_SIZE; z++)
+		{
+			uint32_t idx = x + BRICK_SIZE * (y + BRICK_SIZE * z);
+			uint32_t arrIdx = idx / 32;
+			uint32_t bitIdx = idx % 32;
+
+			if((curBrick[arrIdx] & (uint32_t)(1 << bitIdx)) != 0)
+			{
+				file.read((char*)(curBrick + m_brickBitmapLen + idx), sizeof(uint32_t));
+				readVoxels++;
+			}
+		}
+
+		if(readVoxels != numVoxels)
+			throw std::invalid_argument("brick had incorrect number of voxels, possibly corrupted data");
+
+		//increment curBrick
+		curBrick += m_brickLen;
+	}
 }
 
 //-------------------------//

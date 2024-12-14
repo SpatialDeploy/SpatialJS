@@ -27,7 +27,7 @@ struct SPLVMetadata
 
 struct SPLVFrame
 {
-	uint32_t size;
+	uint32_t numBricks;
 	uint8_t* data;
 };
 
@@ -47,7 +47,14 @@ private:
 	SPLVMetadata m_metadata;
 	SPLVFrame* m_frames;
 
+	//each of these is expressed in number of uint32_t's,
+	//since thats the data type expected by WebGPU
 	uint32_t m_mapLen;
+	uint32_t m_brickBitmapLen;
+	uint32_t m_brickColorsLen;
+	uint32_t m_brickLen;
+
+	void decompress_frame(std::basic_istream<char>& file, uint32_t frameIdx);
 };
 
 #endif //#ifndef SPLV_DECODER_H
