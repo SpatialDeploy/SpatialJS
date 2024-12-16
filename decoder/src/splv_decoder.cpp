@@ -78,6 +78,10 @@ SPLVDecoder::SPLVDecoder(emscripten::val videoBuf)
 
 	m_mapLen = mapWidth * mapHeight * mapDepth;
 
+	m_mapLenCompressed = (m_mapLen + 31) & (~31); //round up to multiple of 32 (sizeof(uint32_t))
+	m_mapLenCompressed /= 4; //4 bytes per uint32_t
+	m_mapLenCompressed /= 8; //8 bits per byte
+
 	m_brickBitmapLen = BRICK_SIZE * BRICK_SIZE * BRICK_SIZE;
 	m_brickBitmapLen = (m_brickBitmapLen + 31) & (~31); //align up to 32 bits (so fits in array of uint32s)
 	m_brickBitmapLen /= 4; //4 bytes per uint
@@ -103,10 +107,10 @@ SPLVDecoder::~SPLVDecoder()
 	for(uint32_t i = 0; i < m_metadata.framecount; i++)
 	{
 		if(m_frames[i].data != nullptr)
-			delete m_frames[i].data;
+			delete[] m_frames[i].data;
 	}
 	
-	delete m_frames;
+	delete[] m_frames;
 }
 
 SPLVMetadata SPLVDecoder::get_metadata()
@@ -147,9 +151,32 @@ void SPLVDecoder::decompress_frame(std::basic_istream<char>& file, uint32_t fram
 	m_frames[frameIdx].numBricks = numBricks;
 	m_frames[frameIdx].data = new uint8_t[(m_mapLen + numBricks * m_brickLen) * sizeof(uint32_t)];
 
-	//read map:
+	//allocate temp buffer for compressed map:
 	//-----------------	
-	file.read((char*)m_frames[frameIdx].data, m_mapLen * sizeof(uint32_t));
+	uint32_t* mapCompressed = new uint32_t[m_mapLenCompressed];
+
+	//read compressed map, generate full map:
+	//-----------------	
+	file.read((char*)mapCompressed, m_mapLenCompressed * sizeof(uint32_t));
+
+	uint32_t mapWidth  = m_metadata.width  / BRICK_SIZE;
+	uint32_t mapHeight = m_metadata.height / BRICK_SIZE;
+	uint32_t mapDepth  = m_metadata.depth  / BRICK_SIZE;
+
+	uint32_t curBrickIdx = 0;
+	for(uint32_t x = 0; x < mapWidth ; x++)
+	for(uint32_t y = 0; y < mapHeight; y++)
+	for(uint32_t z = 0; z < mapDepth ; z++)
+	{
+		uint32_t idx = x + mapWidth * (y + mapHeight * z);
+		uint32_t idxArr = idx / 32;
+		uint32_t idxBit = idx % 32;
+
+		if((mapCompressed[idxArr] & (1u << idxBit)) != 0)
+			((uint32_t*)m_frames[frameIdx].data)[idx] = curBrickIdx++;
+		else
+			((uint32_t*)m_frames[frameIdx].data)[idx] = EMPTY_BRICK;
+	}
 
 	//read each brick:
 	//-----------------	
@@ -186,6 +213,10 @@ void SPLVDecoder::decompress_frame(std::basic_istream<char>& file, uint32_t fram
 		//increment curBrick
 		curBrick += m_brickLen;
 	}
+
+	//cleanup:
+	//-----------------
+	delete[] mapCompressed;
 }
 
 //-------------------------//

@@ -12,6 +12,7 @@
 //-------------------------//
 
 #define BRICK_SIZE 8
+#define EMPTY_BRICK UINT32_MAX
 
 //-------------------------//
 
@@ -50,6 +51,7 @@ private:
 	//each of these is expressed in number of uint32_t's,
 	//since thats the data type expected by WebGPU
 	uint32_t m_mapLen;
+	uint32_t m_mapLenCompressed;
 	uint32_t m_brickBitmapLen;
 	uint32_t m_brickColorsLen;
 	uint32_t m_brickLen;
