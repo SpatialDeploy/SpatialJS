@@ -57,6 +57,7 @@ private:
 	uint32_t m_brickLen;
 
 	void decompress_frame(std::basic_istream<char>& file, uint32_t frameIdx);
+	void decompress_brick_bitmap(std::basic_istream<char>& file, uint32_t* brick);
 };
 
 #endif //#ifndef SPLV_DECODER_H

@@ -188,7 +188,7 @@ void SPLVDecoder::decompress_frame(std::basic_istream<char>& file, uint32_t fram
 		file.read((char*)&numVoxels, sizeof(uint32_t));
 
 		//read brick bitmap
-		file.read((char*)curBrick, m_brickBitmapLen * sizeof(uint32_t));
+		decompress_brick_bitmap(file, curBrick);
 
 		//loop over every voxel, add to color buffer if present
 		uint32_t readVoxels = 0;
@@ -217,6 +217,38 @@ void SPLVDecoder::decompress_frame(std::basic_istream<char>& file, uint32_t fram
 	//cleanup:
 	//-----------------
 	delete[] mapCompressed;
+}
+
+void SPLVDecoder::decompress_brick_bitmap(std::basic_istream<char>& file, uint32_t* brick)
+{
+	//loop over bitmap, read bytes until fill bitmap is fipped:
+	//-----------------
+	uint8_t curByte;
+	file.read((char*)&curByte, sizeof(uint8_t));
+
+	for(uint32_t x = 0; x < BRICK_SIZE; x++)
+	for(uint32_t y = 0; y < BRICK_SIZE; y++)
+	for(uint32_t z = 0; z < BRICK_SIZE; z++)
+	{
+		if((curByte & 0x7F) == 0)
+			file.read((char*)&curByte, sizeof(uint8_t));
+
+		uint32_t idx = x + BRICK_SIZE * (y + BRICK_SIZE * z);
+		uint32_t idxArr = idx / 32;
+		uint32_t idxBit = idx % 32;
+
+		if((curByte & (1u << 7)) != 0)
+			brick[idxArr] |= 1u << idxBit;
+		else
+			brick[idxArr] &= ~(1u << idxBit);
+
+		curByte--;
+	}
+
+	//loop over bitmap, read bytes until fill bitmap is fipped:
+	//-----------------
+	if((curByte & 0x7F) != 0)
+		throw std::invalid_argument("brick bitmap decoding had incorrect number of voxels, possibly corrupted data");
 }
 
 //-------------------------//
