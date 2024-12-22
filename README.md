@@ -30,4 +30,8 @@ cd build
 emcmake cmake ..
 make
 ```
-This should generate the file `spl_decoder.js`, containing the WASM as well as code for loading it. Simply copy this into `player/src` and it will be usable by the main player code.
+This should generate the file `spl_decoder.js`, containing the WASM as well as code for loading it. You can manually copy this into `player/src`, or you can call:
+```bash
+make install_decoder
+```
+This will build the decoder and copy it automatically.

@@ -10,7 +10,7 @@ import {
 } from "./raytracer.js";
 
 import {vec3, mat4} from './math.js';
-import {SPLDecoder} from './spl_decoder.js'
+import SPLDecoder from './spl_decoder.js'
 
 //-------------------------//
 
@@ -49,8 +49,8 @@ async function main(root, videoPath)
 	var videoDecoder; //NOTE: need to call videoDecoder.delete() to avoid memory leak!!!!!
 	try
 	{
-		let video = await fetch_video_file(videoPath)
-		videoDecoder = new DecoderModule.SPLVDecoder(new Uint8Array(video))
+		let video = await fetch_video_file(videoPath);
+		videoDecoder = new DecoderModule.SPLVDecoder(new Uint8Array(video));
 	}
 	catch(e)
 	{

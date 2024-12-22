@@ -1,6 +1,6 @@
 
-export var SPLDecoder = (() => {
-  var _scriptName = typeof document != 'undefined' ? document.currentScript?.src : undefined;
+var SPLDecoder = (() => {
+  var _scriptName = import.meta.url;
   
   return (
 function(moduleArg = {}) {
@@ -752,13 +752,15 @@ function isExportedByForceFilesystem(name) {
  * their build, or no symbols that no longer exist.
  */
 function hookGlobalSymbolAccess(sym, func) {
-  // In MODULARIZE mode the generated code runs inside a function scope and not
-  // the global scope, and JavaScript does not provide access to function scopes
-  // so we cannot dynamically modify the scrope using `defineProperty` in this
-  // case.
-  //
-  // In this mode we simply ignore requests for `hookGlobalSymbolAccess`. Since
-  // this is a debug-only feature, skipping it is not major issue.
+  if (typeof globalThis != 'undefined' && !Object.getOwnPropertyDescriptor(globalThis, sym)) {
+    Object.defineProperty(globalThis, sym, {
+      configurable: true,
+      get() {
+        func();
+        return undefined;
+      }
+    });
+  }
 }
 
 function missingGlobal(sym, msg) {
@@ -4435,7 +4437,4 @@ for (const prop of Object.keys(Module)) {
 }
 );
 })();
-if (typeof exports === 'object' && typeof module === 'object')
-  module.exports = SPLDecoder;
-else if (typeof define === 'function' && define['amd'])
-  define([], () => SPLDecoder);
+export default SPLDecoder;
