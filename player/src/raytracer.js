@@ -241,7 +241,7 @@ async function create_quad_pipeline(inst)
         layout: 'auto', //automatically generate binding group
         vertex: {
 			entryPoint: 'vs',
-			module,
+			module: module,
 			buffers: [
 				{
 					arrayStride: (2 + 2) * 4, //2 component pos, 2 component uv, each 4 byte floats
@@ -254,7 +254,7 @@ async function create_quad_pipeline(inst)
         },
         fragment: {
 			entryPoint: 'fs',
-			module,
+			module: module,
 			targets: [{ format: inst.presentationFormat }],
         },
     });

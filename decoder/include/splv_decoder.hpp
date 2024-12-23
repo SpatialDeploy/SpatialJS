@@ -14,6 +14,8 @@
 #define BRICK_SIZE 8
 #define EMPTY_BRICK UINT32_MAX
 
+#define NUM_COLOR_COMPONENTS 3
+
 //-------------------------//
 
 struct SPLVMetadata

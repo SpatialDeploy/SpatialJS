@@ -202,7 +202,12 @@ void SPLVDecoder::decompress_frame(std::basic_istream<char>& file, uint32_t fram
 
 			if((curBrick[arrIdx] & (uint32_t)(1 << bitIdx)) != 0)
 			{
-				file.read((char*)(curBrick + m_brickBitmapLen + idx), sizeof(uint32_t));
+				uint8_t rgb[NUM_COLOR_COMPONENTS];
+				file.read((char*)rgb, NUM_COLOR_COMPONENTS * sizeof(uint8_t));
+
+				uint32_t packedColor = (rgb[0] << 24) | (rgb[1] << 16) | (rgb[2] << 8) | 255;
+				curBrick[m_brickBitmapLen + idx] = packedColor;
+
 				readVoxels++;
 			}
 		}
