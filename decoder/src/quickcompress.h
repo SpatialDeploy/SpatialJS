@@ -93,26 +93,25 @@ typedef struct QCdecompresserState
 //----------------------------------------------------------------------//
 //FREQUENCY TABLE FUNCTIONS:
 
-void qc_freq_table_init(QCfreqTable* table)
+inline void qc_freq_table_init(QCfreqTable* table)
 {
 	for(uint32_t i = 0; i < QC_NUM_SYMBOLS; i++)
 	{
-		table->frequencies[i] = 1;
-		table->cumulative[i] = i;
+		table->frequencies[i] = 0;
+		table->cumulative[i] = 0;
 	}
 
-	table->cumulative[QC_NUM_SYMBOLS] = QC_NUM_SYMBOLS;
-	table->total = QC_NUM_SYMBOLS;
+	table->cumulative[QC_NUM_SYMBOLS] = 0;
+	table->total = 0;
 }
 
-void qc_freq_table_increment(QCfreqTable* table, uint32_t symbol)
+inline void qc_freq_table_calculate_cdf(QCfreqTable* table)
 {
-	//TODO: replace with some smarter data structure
+	table->cumulative[0] = 0;
+	for(uint32_t i = 1; i < QC_NUM_SYMBOLS + 1; i++)
+		table->cumulative[i] = table->cumulative[i - 1] + table->frequencies[i - 1];
 
-	table->total++;
-	table->frequencies[symbol]++;
-	for(uint32_t i = symbol + 1; i < QC_NUM_SYMBOLS + 1; i++)
-		table->cumulative[i]++;
+	table->total = table->cumulative[QC_NUM_SYMBOLS];
 }
 
 //----------------------------------------------------------------------//
@@ -155,13 +154,10 @@ inline QCerror qc_compressor_emit_bit(QCcompresserState* state, uint8_t bit, std
 	return QC_SUCCESS;
 }
 
-QCerror qc_compressor_write(QCcompresserState* state, QCfreqTable* table, uint32_t symbol, std::ostream& out)
+inline QCerror qc_compressor_write(QCcompresserState* state, QCfreqTable* table, uint32_t symbol, std::ostream& out)
 {
 	//get frequency table values:
 	//---------------
-	if(table->total > QC_MAX_TOTAL)
-		return QC_ERROR_MAX_FREQUENCY;
-	
 	uint32_t symCDF  = table->cumulative[symbol];
 	uint32_t sym1CDF = table->cumulative[symbol + 1];
 
@@ -205,7 +201,7 @@ QCerror qc_compressor_write(QCcompresserState* state, QCfreqTable* table, uint32
 	return QC_SUCCESS;
 }
 
-QCerror qc_compresser_finish(QCcompresserState* state, std::ostream& out)
+inline QCerror qc_compresser_finish(QCcompresserState* state, std::ostream& out)
 {
 	//emit 1:
 	//---------------
@@ -272,13 +268,8 @@ inline QCerror qc_decompresser_read_bit(QCdecompresserState* state, uint8_t* bit
 	return QC_SUCCESS;
 }
 
-QCerror qc_decompresser_read(QCdecompresserState* state, QCfreqTable* table, uint32_t* symbol, std::istream& in)
+inline QCerror qc_decompresser_read(QCdecompresserState* state, QCfreqTable* table, uint32_t* symbol, std::istream& in)
 {
-	//validate:
-	//---------------
-	if(table->total > QC_MAX_TOTAL)
-		return QC_ERROR_MAX_FREQUENCY;
-
 	//get range/offset:
 	//---------------
 	uint64_t range = state->high - state->low + 1;
@@ -311,7 +302,7 @@ QCerror qc_decompresser_read(QCdecompresserState* state, QCfreqTable* table, uin
 	uint64_t newHigh = state->low + (sym1CDF * range) / table->total - 1;
 	state->low = newLow;
 	state->high = newHigh;
-		
+
 	while(((state->low ^ state->high) & QC_HALF_RANGE) == 0) 
 	{
 		uint8_t codeBit;
@@ -341,7 +332,7 @@ QCerror qc_decompresser_read(QCdecompresserState* state, QCfreqTable* table, uin
 	return QC_SUCCESS;
 }
 
-QCerror qc_decompresser_start(QCdecompresserState* state, std::istream& in)
+inline QCerror qc_decompresser_start(QCdecompresserState* state, std::istream& in)
 {
 	in.read((char*)&state->numBytesRemaining, sizeof(uint64_t));
 
@@ -358,7 +349,7 @@ QCerror qc_decompresser_start(QCdecompresserState* state, std::istream& in)
 	return QC_SUCCESS;
 }
 
-void qc_decompresser_finish(QCdecompresserState* state, std::istream& in)
+inline void qc_decompresser_finish(QCdecompresserState* state, std::istream& in)
 {
 	if(state->numBytesRemaining > 0)
 		in.ignore(state->numBytesRemaining);
@@ -369,9 +360,42 @@ void qc_decompresser_finish(QCdecompresserState* state, std::istream& in)
 
 QCerror qc_compress(std::istream& in, std::ostream& out)
 {
+	//generate frequency table:
+	//-----------------
+	uint64_t startPos = in.tellg();
+	
 	QCfreqTable table;
 	qc_freq_table_init(&table);
 
+	while(1)
+	{
+		int symbolRead = in.get();
+		if(symbolRead == EOF)
+			break;
+		
+		uint8_t symbol = (uint8_t)symbolRead;
+
+		table.frequencies[symbol]++;
+		if(table.frequencies[symbol] > QC_MAX_TOTAL)
+		{
+			in.seekg(startPos);
+			return QC_ERROR_MAX_FREQUENCY;
+		}
+	}
+
+	table.frequencies[QC_EOF] = 1;
+
+	qc_freq_table_calculate_cdf(&table);
+
+	in.clear();
+	in.seekg(startPos, std::ios::beg);
+
+	//write frequency table:
+	//-----------------
+	out.write((const char*)table.frequencies, QC_NUM_SYMBOLS * sizeof(uint32_t));
+
+	//compress:
+	//-----------------
 	QCcompresserState compresser;
 	qc_compresser_state_init(&compresser);
 
@@ -393,8 +417,6 @@ QCerror qc_compress(std::istream& in, std::ostream& out)
 		QCerror writeError = qc_compressor_write(&compresser, &table, symbol, out);
 		if(writeError != QC_SUCCESS)
 			return writeError;
-		
-		qc_freq_table_increment(&table, symbol);
 	}
 
 	QCerror writeError = qc_compressor_write(&compresser, &table, QC_EOF, out);
@@ -410,9 +432,16 @@ QCerror qc_compress(std::istream& in, std::ostream& out)
 
 QCerror qc_decompress(std::istream& in, std::ostream& out)
 {
+	//read frequency table:
+	//-----------------
 	QCfreqTable table;
-	qc_freq_table_init(&table);
 
+	in.read((char*)table.frequencies, QC_NUM_SYMBOLS * sizeof(uint32_t));
+
+	qc_freq_table_calculate_cdf(&table);
+
+	//decompress:
+	//-----------------
 	QCdecompresserState decompressor;
 	qc_decompresser_state_init(&decompressor);
 
@@ -432,8 +461,6 @@ QCerror qc_decompress(std::istream& in, std::ostream& out)
 		
 		if(!out.put(symbol))
 			return QC_ERROR_WRITE;
-
-		qc_freq_table_increment(&table, symbol);
 	}
 
 	qc_decompresser_finish(&decompressor, in);
