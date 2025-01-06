@@ -1,112 +1,16 @@
-/* ------------------------------------------------------------------------
- *
- * quickcompress.h
- * author: Daniel Elwell (2025)
- * license: MIT
- * description: a single-header library for general data compression
- * 
- * ------------------------------------------------------------------------
- * 
- * to use you must "#define QC_IMPLEMENTATION" in exactly one source file before including the library
- * 
- * if you wish to use a custom memory allocator instead of the default malloc() (when writing to a QCbuffer), you must 
- * "#define QC_MALLOC(s) my_malloc(s)", "#define QC_FREE(p) my_free(p)", and "#define QC_REALLOC(p, s) my_realloc(p, s)"
- * before including the library in the same source file you used "#define QC_IMPLEMENTATION"
- * 
- * the following strutures, enums, and functions are defined for end use:
- * (all other functions/structures are meant for internal library use only and do not have documentation)
- * 
- * FUNCTION PROTOTYPES:
- * ------------------------------------------------------------------------
- * 
- * size_t (*QCwriteFunc)(void* buf, size_t elemSize, size_t elemCount, void* state)
- * 		writes elemCount many objects of elemSize bytes from buf
- * 		returns the number of objects sucessfully written
- * 
- * size_t (*QCreadFunc)(void* buf, size_t elemSize, size_t elemCount, void* state)
- * 		reads elemCount many objects of elemSize bytes to buf
- * 		returns the number of objects sucessfully read
- * 
- * STRUCTURES:
- * ------------------------------------------------------------------------
- * 
- * QCinput
- * 		represents a general mode of input, contains a read() function and optional state
- * 
- * QCoutput
- * 		represents a general mode of output, contains a write() function and optional state
- * 
- * QCbuffer
- * 		a sized data buffer
- * 
- * ENUMS:
- * ------------------------------------------------------------------------
- * 
- * QCerror
- * 		the return value for most functions, defines any possible errors that could occur
- * 
- * FUNCTIONS:
- * ------------------------------------------------------------------------
- * 
- * QCerror qc_compress(QCinput in, QCoutput out)
- * 		general routine for performing arithmetic coding-based compression
- * 		reads raw data from [in], writes compressed data to [out]
- * 
- * QCerror qc_decompress(QCinput in, QCoutput out)
- * 		general routine for performing arithmetic coding-based decompression
- * 		decompresses data written with qc_compress*()
- * 		reads compressed data from [in], writes original data to [out]
- * 
- * QCerror qc_compress_buffer_to_file(QCbuffer in, const char* outPath)
- * 		compresses a raw input buffer to a file
- * 		reads raw data from [in], writes compressed data to a file at [outPath]
- * 
- * QCerror qc_decompress_file_to_buffer(const char* inPath, QCbuffer* out)
- * 		decompresses compressed data from a file into a buffer
- * 		decompresses data written with qc_compress*()
- * 		reads compressed data from a file at [inPath], writes original data to [out]
- * 		NOTE: this function allocates the memory for the output buffer, call qc_buffer_free() to prevent memory leaks
- * 
- * void qc_buffer_free(QCbuffer buf)
- * 		frees memory allocated for a QCbuffer. must be called to prevent memory leaks
+/* quickcomress.h
+ * contains routines for performing arithmetic coding compression/decompression
+ * adapted from a C single-header library (from Daniel Elwell)
  */
 
 #ifndef QC_H
 #define QC_H
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 #include <stdint.h>
+#include <iostream>
 
 //----------------------------------------------------------------------//
 //DECLARATIONS:
-
-typedef size_t (*QCwriteFunc)(void*, size_t, size_t, void*);
-typedef size_t (*QCreadFunc)(void*, size_t, size_t, void*);
-
-//all state/functions needed for reading
-typedef struct QCinput
-{
-	QCreadFunc read;
-	void* state;
-} QCinput;
-
-//all state/functions needed for writing
-typedef struct QCoutput
-{
-	QCwriteFunc write;
-	void* state;
-} QCoutput;
-
-//a sized data buffer
-typedef struct QCbuffer
-{
-	uint8_t* data;
-	uint64_t size;
-} QCbuffer;
 
 //an error value, returned by all functions which can have errors
 typedef enum QCerror
@@ -120,33 +24,16 @@ typedef enum QCerror
 } QCerror;
 
 //performs arithmetic coding compression, reading raw data from in and outputting compressed data to out
-QCerror qc_compress(QCinput in, QCoutput out);
+QCerror qc_compress(std::istream& in, std::ostream& out);
 //performs arithmetic coding decompression, reading compressed data from in and outputtong raw data to out
-QCerror qc_decompress(QCinput in, QCoutput out);
-//performs arithmetic coding compression from a buffer to a file
-QCerror qc_compress_buffer_to_file(QCbuffer in, const char* outPath);
-//performs arithmetic coding decompression from a file to a buffer
-QCerror qc_decompress_file_to_buffer(const char* inPath, QCbuffer* out);
-
-//frees memory allocated to a QCbuffer
-void qc_buffer_free(QCbuffer buf);
+QCerror qc_decompress(std::istream& in, std::ostream& out);
 
 //----------------------------------------------------------------------//
 
 #ifdef QC_IMPLEMENTATION
 
-#include <stdio.h>
-
 //----------------------------------------------------------------------//
 //IMPLEMENTATION CONSTANTS:
-
-#if !defined(QC_MALLOC) || !defined(QC_FREE) || !defined(QC_FREE)
-	#include <malloc.h>
-
-	#define QC_MALLOC(s) malloc(s)
-	#define QC_FREE(p) free(p)
-	#define QC_REALLOC(p, s) realloc(p, s)
-#endif
 
 #ifndef QC_NUM_STATE_BITS
 	#define QC_NUM_STATE_BITS 32
@@ -187,6 +74,8 @@ typedef struct QCcompresserState
 
 	uint8_t curByte;
 	uint32_t numBitsWritten;
+
+	uint64_t startPos; //start position in the stream
 } QCcompresserState;
 
 //all state variables used by arithmetic coding decompression routines
@@ -198,14 +87,8 @@ typedef struct QCdecompresserState
 
 	uint8_t curByte;
 	uint32_t numBitsRemaining;
+	uint64_t numBytesRemaining;
 } QCdecompresserState;
-
-//a dynamically sized buffer
-typedef struct QCdynamicBuffer
-{
-	uint64_t cap;
-	QCbuffer buf;
-} QCdynamicBuffer;
 
 //----------------------------------------------------------------------//
 //FREQUENCY TABLE FUNCTIONS:
@@ -235,7 +118,7 @@ void qc_freq_table_increment(QCfreqTable* table, uint32_t symbol)
 //----------------------------------------------------------------------//
 //COMPRESSION FUNCTIONS:
 
-void qc_compresser_state_init(QCcompresserState* state)
+inline void qc_compresser_state_init(QCcompresserState* state)
 {
 	state->low = 0;
 	state->high = QC_STATE_MASK;
@@ -244,14 +127,25 @@ void qc_compresser_state_init(QCcompresserState* state)
 	state->numBitsWritten = 0;
 }
 
-inline QCerror qc_compressor_emit_bit(QCcompresserState* state, uint8_t bit, QCoutput* out)
+inline QCerror qc_compresser_start(QCcompresserState* state, std::ostream& out)
+{
+	state->startPos = out.tellp();
+
+	//write empty space for compressed size, will be filled in later
+	uint64_t size = 0;
+	out.write((const char*)&size, sizeof(uint64_t));
+
+	return QC_SUCCESS;
+}
+
+inline QCerror qc_compressor_emit_bit(QCcompresserState* state, uint8_t bit, std::ostream& out)
 {
 	state->curByte = (state->curByte << 1) | bit;
 	state->numBitsWritten++;
 
 	if(state->numBitsWritten == 8)
 	{
-		if(out->write(&state->curByte, 1, 1, out->state) < 1)
+		if(!out.put(state->curByte))
 			return QC_ERROR_WRITE;
 
 		state->curByte = 0;
@@ -261,7 +155,7 @@ inline QCerror qc_compressor_emit_bit(QCcompresserState* state, uint8_t bit, QCo
 	return QC_SUCCESS;
 }
 
-QCerror qc_compressor_write(QCcompresserState* state, QCfreqTable* table, uint32_t symbol, QCoutput* out)
+QCerror qc_compressor_write(QCcompresserState* state, QCfreqTable* table, uint32_t symbol, std::ostream& out)
 {
 	//get frequency table values:
 	//---------------
@@ -311,7 +205,7 @@ QCerror qc_compressor_write(QCcompresserState* state, QCfreqTable* table, uint32
 	return QC_SUCCESS;
 }
 
-QCerror qc_compresser_finish(QCcompresserState* state, QCoutput* out)
+QCerror qc_compresser_finish(QCcompresserState* state, std::ostream& out)
 {
 	//emit 1:
 	//---------------
@@ -324,9 +218,19 @@ QCerror qc_compresser_finish(QCcompresserState* state, QCoutput* out)
 	if(state->numBitsWritten > 0)
 	{
 		state->curByte <<= 8 - state->numBitsWritten;
-		if(out->write(&state->curByte, 1, 1, out->state) < 1)
+		if(!out.put(state->curByte))
 			return QC_ERROR_WRITE;
 	}
+
+	//write total compressed size:
+	//---------------
+	uint64_t curPos = out.tellp();
+	uint64_t size = curPos - state->startPos - sizeof(uint64_t);
+
+	out.seekp(state->startPos, std::ios::beg);
+	out.write((const char*)&size, sizeof(uint64_t));
+
+	out.seekp(0, std::ios::end);
 
 	return QC_SUCCESS;
 }
@@ -334,7 +238,7 @@ QCerror qc_compresser_finish(QCcompresserState* state, QCoutput* out)
 //----------------------------------------------------------------------//
 //DECOMPRESSION FUNCTIONS:
 
-void qc_decompresser_state_init(QCdecompresserState* state)
+inline void qc_decompresser_state_init(QCdecompresserState* state)
 {
 	state->low = 0;
 	state->high = QC_STATE_MASK;
@@ -343,21 +247,23 @@ void qc_decompresser_state_init(QCdecompresserState* state)
 	state->numBitsRemaining = 0;
 }
 
-inline QCerror qc_decompresser_read_bit(QCdecompresserState* state, uint8_t* bit, QCinput* in)
+inline QCerror qc_decompresser_read_bit(QCdecompresserState* state, uint8_t* bit, std::istream& in)
 {
 	if(state->numBitsRemaining == 0)
 	{
-		if(in->read(&state->curByte, 1, 1, in->state) < 1)
+		if(state->numBytesRemaining == 0)
 		{
-			//TODO: we always treat the bit as 0 if we reach EOF (infinite trailing 0s)
-			//this can be a potential issue since we dont catch actual errors in file reading,
-			//figure out a solution
-
 			*bit = 0;
-			return QC_ERROR_READ;
+			return QC_SUCCESS;
 		}
 
+		int symbolRead = in.get();
+		if(symbolRead == EOF)
+			return QC_ERROR_READ;
+
+		state->curByte = (uint8_t)symbolRead;
 		state->numBitsRemaining = 8;
+		state->numBytesRemaining--;
 	}
 
 	state->numBitsRemaining--;
@@ -366,7 +272,7 @@ inline QCerror qc_decompresser_read_bit(QCdecompresserState* state, uint8_t* bit
 	return QC_SUCCESS;
 }
 
-QCerror qc_decompresser_read(QCdecompresserState* state, QCfreqTable* table, uint32_t* symbol, QCinput* in)
+QCerror qc_decompresser_read(QCdecompresserState* state, QCfreqTable* table, uint32_t* symbol, std::istream& in)
 {
 	//validate:
 	//---------------
@@ -409,7 +315,10 @@ QCerror qc_decompresser_read(QCdecompresserState* state, QCfreqTable* table, uin
 	while(((state->low ^ state->high) & QC_HALF_RANGE) == 0) 
 	{
 		uint8_t codeBit;
-		qc_decompresser_read_bit(state, &codeBit, in);
+		QCerror readError = qc_decompresser_read_bit(state, &codeBit, in);
+		if(readError != QC_SUCCESS)
+			return readError;
+		
 		state->code = ((state->code << 1) & QC_STATE_MASK) | codeBit;
 
 		state->low  = ((state->low  << 1) & QC_STATE_MASK);
@@ -419,7 +328,10 @@ QCerror qc_decompresser_read(QCdecompresserState* state, QCfreqTable* table, uin
 	while((state->low & ~state->high & QC_QUARTER_RANGE) != 0) 
 	{
 		uint8_t codeBit;
-		qc_decompresser_read_bit(state, &codeBit, in);
+		QCerror readError = qc_decompresser_read_bit(state, &codeBit, in);
+		if(readError != QC_SUCCESS)
+			return readError;
+
 		state->code = (state->code & QC_HALF_RANGE) | ((state->code << 1) & (QC_STATE_MASK >> 1)) | codeBit;
 
 		state->low = (state->low << 1) ^ QC_HALF_RANGE;
@@ -429,12 +341,16 @@ QCerror qc_decompresser_read(QCdecompresserState* state, QCfreqTable* table, uin
 	return QC_SUCCESS;
 }
 
-QCerror qc_decompresser_start(QCdecompresserState* state, QCinput* in)
+QCerror qc_decompresser_start(QCdecompresserState* state, std::istream& in)
 {
+	in.read((char*)&state->numBytesRemaining, sizeof(uint64_t));
+
 	for(uint32_t i = 0; i < QC_NUM_STATE_BITS; i++)
 	{
 		uint8_t codeBit;
-		qc_decompresser_read_bit(state, &codeBit, in);
+		QCerror readError = qc_decompresser_read_bit(state, &codeBit, in);
+		if(readError != QC_SUCCESS)
+			return readError;
 
 		state->code = (state->code << 1) | codeBit;
 	}
@@ -442,10 +358,16 @@ QCerror qc_decompresser_start(QCdecompresserState* state, QCinput* in)
 	return QC_SUCCESS;
 }
 
+void qc_decompresser_finish(QCdecompresserState* state, std::istream& in)
+{
+	if(state->numBytesRemaining > 0)
+		in.ignore(state->numBytesRemaining);
+}
+
 //----------------------------------------------------------------------//
 //FRONT-FACING COMPRESSION/DECOMPRESSION FUNCTIONS:
 
-QCerror qc_compress(QCinput in, QCoutput out)
+QCerror qc_compress(std::istream& in, std::ostream& out)
 {
 	QCfreqTable table;
 	qc_freq_table_init(&table);
@@ -453,34 +375,40 @@ QCerror qc_compress(QCinput in, QCoutput out)
 	QCcompresserState compresser;
 	qc_compresser_state_init(&compresser);
 
+	QCerror startError = qc_compresser_start(&compresser, out);
+	if(startError != QC_SUCCESS)
+		return startError;
+
 	//TODO: explore tradeoffs between adaptive and static arithmetic coding
 	//TODO: implement PPM (prediction by partial matching)
 
 	while(1)
 	{
-		uint8_t symbol;
-		if(in.read(&symbol, 1, 1, in.state) < 1)
+		int symbolRead = in.get();
+		if(symbolRead == EOF)
 			break;
 
-		QCerror writeError = qc_compressor_write(&compresser, &table, symbol, &out);
+		uint8_t symbol = (uint8_t)symbolRead;
+
+		QCerror writeError = qc_compressor_write(&compresser, &table, symbol, out);
 		if(writeError != QC_SUCCESS)
 			return writeError;
 		
 		qc_freq_table_increment(&table, symbol);
 	}
 
-	QCerror writeError = qc_compressor_write(&compresser, &table, QC_EOF, &out);
+	QCerror writeError = qc_compressor_write(&compresser, &table, QC_EOF, out);
 	if(writeError != QC_SUCCESS)
 		return writeError;
 
-	QCerror finishError = qc_compresser_finish(&compresser, &out);
+	QCerror finishError = qc_compresser_finish(&compresser, out);
 	if(finishError != QC_SUCCESS)
 		return finishError;
 
 	return QC_SUCCESS;
 }
 
-QCerror qc_decompress(QCinput in, QCoutput out)
+QCerror qc_decompress(std::istream& in, std::ostream& out)
 {
 	QCfreqTable table;
 	qc_freq_table_init(&table);
@@ -488,175 +416,33 @@ QCerror qc_decompress(QCinput in, QCoutput out)
 	QCdecompresserState decompressor;
 	qc_decompresser_state_init(&decompressor);
 
-	QCerror startError = qc_decompresser_start(&decompressor, &in);
+	QCerror startError = qc_decompresser_start(&decompressor, in);
 	if(startError != QC_SUCCESS)
 		return startError;
 
 	while(1)
 	{
 		uint32_t symbol;
-		QCerror readError = qc_decompresser_read(&decompressor, &table, &symbol, &in);
+		QCerror readError = qc_decompresser_read(&decompressor, &table, &symbol, in);
 		if(readError != QC_SUCCESS)
 			return readError;
 
 		if(symbol == QC_EOF)
 			break;
 		
-		out.write(&symbol, 1, 1, out.state);
+		if(!out.put(symbol))
+			return QC_ERROR_WRITE;
 
 		qc_freq_table_increment(&table, symbol);
 	}
 
+	qc_decompresser_finish(&decompressor, in);
+
 	return QC_SUCCESS;
-}
-
-//QCreadFunc for buffers
-size_t qc_buffer_read(void* outBuf, size_t elemSize, size_t elemCount, void* state)
-{
-	QCbuffer* inBuf = (QCbuffer*)state;
-
-	size_t numRead = 0;
-	for(size_t i = 0; i < elemCount; i++)
-	{
-		if(inBuf->size < elemSize)
-			break;
-
-		memcpy(outBuf, inBuf->data, elemSize);
-		outBuf = (uint8_t*)outBuf + elemSize;
-		inBuf->data += elemSize;
-		inBuf->size -= elemSize;
-
-		numRead++;
-	}
-
-	return numRead;
-}
-
-//QCreadFunc for files
-size_t qc_file_read(void* buf, size_t elemSize, size_t elemCount, void* file)
-{
-	return fread(buf, elemSize, elemCount, (FILE*)file);
-}
-
-//QCwriteFunc for buffers
-size_t qc_buffer_write(void* inBuf, size_t elemSize, size_t elemCount, void* state)
-{
-	QCdynamicBuffer* outBuf = (QCdynamicBuffer*)state;
-
-	size_t numWritten = 0;
-	for(size_t i = 0; i < elemCount; i++)
-	{
-		if(outBuf->buf.size + elemCount > outBuf->cap)
-		{
-			uint64_t cap = outBuf->cap;
-			while(outBuf->buf.size + elemCount > cap)
-				cap *= 2;
-
-			uint8_t* newData = (uint8_t*)QC_REALLOC(outBuf->buf.data, cap);
-			if(!newData)
-				break;
-
-			outBuf->cap = cap;
-			outBuf->buf.data = newData;
-		}
-
-		memcpy(&outBuf->buf.data[outBuf->buf.size], inBuf, elemSize);
-		outBuf->buf.size += elemSize;
-		inBuf = (uint8_t*)inBuf + elemSize;
-
-		numWritten++;
-	}
-
-	return numWritten;
-}
-
-//QCwriteFunc for files
-size_t qc_file_write(void* buf, size_t elemSize, size_t elemCount, void* file)
-{
-	return fwrite(buf, elemSize, elemCount, (FILE*)file);
-}
-
-QCerror qc_compress_buffer_to_file(QCbuffer in, const char* outPath)
-{
-#ifdef __EMSCRIPTEN__
-	FILE* outFile = fopen(outPath, "wb");
-	if(!outFile)
-		return QC_ERROR_FILE_OPEN;
-#else
-	FILE* outFile;
-	if(fopen_s(&outFile, outPath, "wb") != 0)
-		return QC_ERROR_FILE_OPEN;
-#endif
-
-	QCinput input = {
-		qc_buffer_read,
-		&in
-	};
-
-	QCoutput output = {
-		qc_file_write,
-		outFile
-	};
-
-	QCerror status = qc_compress(input, output);
-
-	fclose(outFile);
-
-	return status;
-}
-
-QCerror qc_decompress_file_to_buffer(const char* inPath, QCbuffer* out)
-{
-#ifdef __EMSCRIPTEN__
-	FILE* inFile = fopen(inPath, "rb");
-	if(!inFile)
-		return QC_ERROR_FILE_OPEN;
-#else
-	FILE* inFile;
-	if(fopen_s(&inFile, inPath, "rb") != 0)
-		return QC_ERROR_FILE_OPEN;
-#endif
-
-	QCinput input = {
-		qc_file_read,
-		inFile
-	};
-
-	const uint32_t INITIAL_CAP = 32;
-	QCdynamicBuffer outBuf;
-	outBuf.cap = INITIAL_CAP;
-	outBuf.buf.size = 0;
-	outBuf.buf.data = (uint8_t*)QC_MALLOC(INITIAL_CAP);
-
-	if(!outBuf.buf.data)
-		return QC_ERROR_OUT_OF_MEMORY;
-
-	QCoutput output = {
-		qc_buffer_write,
-		&outBuf
-	};
-
-	QCerror status = qc_decompress(input, output);
-
-	fclose(inFile);
-
-	return status;
-}
-
-void qc_buffer_free(QCbuffer buf)
-{
-	if(!buf.data)
-		return;
-
-	QC_FREE(buf.data);
 }
 
 //----------------------------------------------------------------------//
 
 #endif //#ifdef QC_IMPLEMENTATION
-
-#ifdef __cplusplus
-} //extern "C"
-#endif
 
 #endif //#ifndef QC_H

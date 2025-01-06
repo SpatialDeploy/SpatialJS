@@ -1,23 +1,10 @@
 #include "splv_decoder.hpp"
 
-#include "morton_lut.hpp"
-
 #define QC_IMPLEMENTATION
 #include "quickcompress.h"
+#include "morton_lut.hpp"
 
-//-------------------------//
-
-struct LimitedIStreamReader
-{
-	uint64_t numLeft;
-	std::basic_istream<char>* stream;
-};
-
-//-------------------------//
-
-//for IO with quickcompress
-size_t limited_istream_read(void* buf, size_t elemCount, size_t elemSize, void* data);
-size_t ostream_write(void* buf, size_t elemCount, size_t elemSize, void* data);
+#include <chrono>
 
 //-------------------------//
 
@@ -127,29 +114,11 @@ SPLVFrame SPLVDecoder::decode_frame()
 {
 	//decompress with quickcompress:
 	//-----------------
-	uint64_t compressedFrameSize;
-	m_compressedVideo->read((char*)&compressedFrameSize, sizeof(uint64_t));
-
-	LimitedIStreamReader compressedReader;
-	compressedReader.numLeft = compressedFrameSize;
-	compressedReader.stream = m_compressedVideo;
-
-	QCinput qcInput;
-	qcInput.read = limited_istream_read;
-	qcInput.state = &compressedReader;
-
 	std::vector<uint8_t> decompressedBuf;
 	Uint8VectorOStream decompressedStream(decompressedBuf);
 
-	QCoutput qcOutput;
-	qcOutput.write = ostream_write;
-	qcOutput.state = &decompressedStream;
-
-	if(qc_decompress(qcInput, qcOutput) != QC_SUCCESS)
+	if(qc_decompress(*m_compressedVideo, decompressedStream) != QC_SUCCESS)
 		throw std::runtime_error("error decompressing frame!");
-
-	if(compressedReader.numLeft > 0) //remove unread bytes from frame
-		m_compressedVideo->ignore(compressedReader.numLeft);
 
 	Uint8VectorIStream decompressedFrame(decompressedBuf);
 
@@ -267,42 +236,6 @@ void SPLVDecoder::decode_brick_bitmap(std::basic_istream<char>& file, uint32_t* 
 	//-----------------
 	if((curByte & 0x7F) != 0)
 		throw std::invalid_argument("brick bitmap decoding had incorrect number of voxels, possibly corrupted data");
-}
-
-//-------------------------//
-
-size_t limited_istream_read(void* buf, size_t elemCount, size_t elemSize, void* data)
-{
-	LimitedIStreamReader* reader = (LimitedIStreamReader*)data;
-
-	size_t numRead = 0;
-	for(size_t i = 0; i < elemCount; i++)
-	{
-		if(reader->numLeft < elemSize)
-			break;
-
-		reader->stream->read((char*)buf, elemSize);
-		if(reader->stream->gcount() < elemSize)
-			break;
-
-		buf = (uint8_t*)buf + elemSize;
-		reader->numLeft -= elemSize;
-		numRead++;
-	}
-
-	return numRead;
-}
-
-size_t ostream_write(void* buf, size_t elemCount, size_t elemSize, void* data)
-{
-	std::ostream* stream = (std::ostream*)data;
-
-	stream->write((const char*)buf, elemCount * elemSize);
-
-	if(stream->good())
-		return elemCount;
-	else
-		return 0;
 }
 
 //-------------------------//
