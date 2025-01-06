@@ -216,7 +216,7 @@ async function render(state, raytraceState, timestamp)
 //-------------------------//
 
 //gets the frame of a video as buffers to render
-function get_video_frame_bufs(inst, videoDecoder, frame)
+function get_video_frame_bufs(inst, videoDecoder, frameIdx)
 {
 	//extract size from metadata:
 	//-----------------
@@ -229,12 +229,13 @@ function get_video_frame_bufs(inst, videoDecoder, frame)
 
 	//get frames from decoder:
 	//-----------------
-	let mapBuf = videoDecoder.get_map_buffer(frame)
-	let brickBuf = videoDecoder.get_brick_buffer(frame)
-	//console.log(brickBuf)
+	let frame = videoDecoder.get_frame(frameIdx);
 
 	//upload buffers to WebGPU buffers:
 	//-----------------
+	let mapBuf = frame.get_map_buffer();
+	let brickBuf = frame.get_brick_buffer();
+
 	let mapBufGPU = inst.device.createBuffer({
 		label: 'voxel map buf',
 		size: mapBuf.length * Uint32Array.BYTES_PER_ELEMENT,
@@ -249,8 +250,10 @@ function get_video_frame_bufs(inst, videoDecoder, frame)
 	});
 	inst.device.queue.writeBuffer(brickBufGPU, 0, brickBuf);
 
-	//return:
+	//cleanup + return:
 	//-----------------
+	videoDecoder.free_frame(frame);
+
 	return {
 		volumeSize: size,
 		mapBuf : mapBufGPU,

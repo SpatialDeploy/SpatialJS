@@ -1,89 +1,11 @@
 #include "splv_decoder.hpp"
 
-#include <iostream>
-#include <fstream>
-#include <streambuf>
-#include <vector>
-
 #include "morton_lut.hpp"
 
 #define QC_IMPLEMENTATION
 #include "quickcompress.h"
 
 //-------------------------//
-
-class Uint8VectorIStream : public std::basic_istream<char> 
-{
-private:
-    class Uint8VectorStreamBuf : public std::streambuf 
-	{
-    private:
-        std::vector<uint8_t>& m_vec;
-        char_type* m_begin;
-        char_type* m_end;
-
-    public:
-        explicit Uint8VectorStreamBuf(std::vector<uint8_t>& vec) : 
-			m_vec(vec), 
-            m_begin(reinterpret_cast<char_type*>(m_vec.data())),
-            m_end(m_begin + m_vec.size()) 
-		{
-            setg(m_begin, m_begin, m_end);
-        }
-    };
-
-    Uint8VectorStreamBuf m_streambuf;
-
-public:
-    explicit Uint8VectorIStream(std::vector<uint8_t>& vec) : 
-		std::basic_istream<char>(&m_streambuf), m_streambuf(vec) 
-	{
-
-	}
-};
-
-class Uint8VectorOStream : public std::basic_ostream<char>
-{
-private:
-	class Uint8VectorStreamBuf : public std::streambuf
-	{
-	private:
-		std::vector<uint8_t>& m_vec;
-
-	protected:
-		virtual int_type overflow(int_type ch = traits_type::eof()) override 
-		{
-			if(ch != traits_type::eof())
-				m_vec.push_back(static_cast<uint8_t>(ch));
-
-			return ch;
-		}
-
-		virtual std::streamsize xsputn(const char* s, std::streamsize n) override 
-		{
-			size_t old_size = m_vec.size();
-			m_vec.resize(old_size + n);
-			std::memcpy(m_vec.data() + old_size, s, n);
-			return n;
-		}
-
-	public:
-		explicit Uint8VectorStreamBuf(std::vector<uint8_t>& vec)
-			: m_vec(vec)
-		{
-
-		}
-	};
-
-	Uint8VectorStreamBuf m_streambuf;
-
-public:
-	explicit Uint8VectorOStream(std::vector<uint8_t>& vec)
-		: std::basic_ostream<char>(&m_streambuf), m_streambuf(vec)
-	{
-
-	}
-};
 
 struct LimitedIStreamReader
 {
@@ -103,19 +25,21 @@ SPLVDecoder::SPLVDecoder(emscripten::val videoBuf)
 {
 	//create stream from input buffer:
 	//-----------------	
-    emscripten::val memoryView = videoBuf.call<emscripten::val>("slice");
-    std::vector<uint8_t> buffer = emscripten::vecFromJSArray<uint8_t>(memoryView);
-
-	auto file = Uint8VectorIStream(buffer);
+    emscripten::val compressedBufferMemoryView = videoBuf.call<emscripten::val>("slice");
+    m_compressedBuffer = emscripten::vecFromJSArray<uint8_t>(compressedBufferMemoryView);
+	m_compressedVideo = new Uint8VectorIStream(m_compressedBuffer);
 
 	//read metadata:
 	//-----------------
-	file.read((char*)&m_metadata.width, sizeof(uint32_t));
-	file.read((char*)&m_metadata.height, sizeof(uint32_t));
-	file.read((char*)&m_metadata.depth, sizeof(uint32_t));
-	file.read((char*)&m_metadata.framerate, sizeof(float));
-	file.read((char*)&m_metadata.framecount, sizeof(uint32_t));
-	file.read((char*)&m_metadata.duration, sizeof(float));
+	m_compressedVideo->read((char*)&m_metadata.width, sizeof(uint32_t));
+	m_compressedVideo->read((char*)&m_metadata.height, sizeof(uint32_t));
+	m_compressedVideo->read((char*)&m_metadata.depth, sizeof(uint32_t));
+	m_compressedVideo->read((char*)&m_metadata.framerate, sizeof(float));
+	m_compressedVideo->read((char*)&m_metadata.framecount, sizeof(uint32_t));
+	m_compressedVideo->read((char*)&m_metadata.duration, sizeof(float));
+
+	uint64_t frameTablePtr;
+	m_compressedVideo->read((char*)&frameTablePtr, sizeof(uint64_t));
 
 	//validate metadata:
 	//-----------------
@@ -152,26 +76,19 @@ SPLVDecoder::SPLVDecoder(emscripten::val videoBuf)
 
 	m_brickLen = m_brickBitmapLen + m_brickColorsLen;
 
-	//copy each frame into frame array:
-	//-----------------	
-	m_frames = new SPLVFrame[m_metadata.framecount];
+	//read frame pointers:
+	//-----------------
+	m_frameTable = new uint64_t[m_metadata.framecount];
+	if(!m_frameTable)
+		throw std::runtime_error("failed to allocate frame table");
 
-	for(uint32_t i = 0; i < m_metadata.framecount; i++)
-		decompress_frame(file, i);
+	m_compressedVideo->seekg(frameTablePtr, std::ios::beg);
+	m_compressedVideo->read((char*)m_frameTable, m_metadata.framecount * sizeof(uint64_t));
 }
 
 SPLVDecoder::~SPLVDecoder()
 {
-	if(m_frames == nullptr)
-		return;
 
-	for(uint32_t i = 0; i < m_metadata.framecount; i++)
-	{
-		if(m_frames[i].data != nullptr)
-			delete[] m_frames[i].data;
-	}
-	
-	delete[] m_frames;
 }
 
 SPLVMetadata SPLVDecoder::get_metadata()
@@ -179,37 +96,43 @@ SPLVMetadata SPLVDecoder::get_metadata()
 	return m_metadata;
 }
 
-emscripten::val SPLVDecoder::get_map_buffer(uint32_t frame)
+SPLVFrameEmscripten SPLVDecoder::get_frame(uint32_t idx)
 {
-	if(frame >= m_metadata.framecount)
-		throw std::invalid_argument("out-of-range frame");
+	//decode frame:
+	//-----------------
+	uint64_t framePtr = m_frameTable[idx];
+	m_compressedVideo->seekg(framePtr, std::ios::beg);
 
-	return emscripten::val(emscripten::typed_memory_view(m_mapLen * sizeof(uint32_t), m_frames[frame].data));
+	SPLVFrame frame = decode_frame();
+
+	//create memory views:
+	//-----------------
+	emscripten::val mapBuf(emscripten::typed_memory_view(m_mapLen * sizeof(uint32_t), frame.data));
+
+	uint32_t brickBufSize = frame.numBricks * m_brickLen * sizeof(uint32_t);
+	uint32_t brickBufOffset = m_mapLen * sizeof(uint32_t);
+	emscripten::val brickBuf(emscripten::typed_memory_view(brickBufSize, frame.data + brickBufOffset));
+
+	return SPLVFrameEmscripten(mapBuf, brickBuf, frame.data);
 }
 
-emscripten::val SPLVDecoder::get_brick_buffer(uint32_t frame)
+void SPLVDecoder::free_frame(const SPLVFrameEmscripten& frame)
 {
-	if(frame >= m_metadata.framecount)
-		throw std::invalid_argument("out-of-range frame");
-
-	uint32_t size = m_frames[frame].numBricks * m_brickLen * sizeof(uint32_t);
-	uint32_t offset = m_mapLen * sizeof(uint32_t);
-
-	return emscripten::val(emscripten::typed_memory_view(size, m_frames[frame].data + offset));
+	delete frame.get_data_ptr();
 }
 
 //-------------------------//
 
-void SPLVDecoder::decompress_frame(std::basic_istream<char>& compressedStream, uint32_t frameIdx)
+SPLVFrame SPLVDecoder::decode_frame()
 {
 	//decompress with quickcompress:
 	//-----------------
-	uint64_t frameSize;
-	compressedStream.read((char*)&frameSize, sizeof(uint64_t));
+	uint64_t compressedFrameSize;
+	m_compressedVideo->read((char*)&compressedFrameSize, sizeof(uint64_t));
 
 	LimitedIStreamReader compressedReader;
-	compressedReader.numLeft = frameSize;
-	compressedReader.stream = &compressedStream;
+	compressedReader.numLeft = compressedFrameSize;
+	compressedReader.stream = m_compressedVideo;
 
 	QCinput qcInput;
 	qcInput.read = limited_istream_read;
@@ -226,19 +149,20 @@ void SPLVDecoder::decompress_frame(std::basic_istream<char>& compressedStream, u
 		throw std::runtime_error("error decompressing frame!");
 
 	if(compressedReader.numLeft > 0) //remove unread bytes from frame
-		compressedStream.ignore(compressedReader.numLeft);
+		m_compressedVideo->ignore(compressedReader.numLeft);
 
-	Uint8VectorIStream frame(decompressedBuf);
+	Uint8VectorIStream decompressedFrame(decompressedBuf);
 
 	//read total number of bricks:
 	//-----------------	
 	uint32_t numBricks;
-	frame.read((char*)&numBricks, sizeof(uint32_t));
+	decompressedFrame.read((char*)&numBricks, sizeof(uint32_t));
 
 	//allocate enough memory:
-	//-----------------	
-	m_frames[frameIdx].numBricks = numBricks;
-	m_frames[frameIdx].data = new uint8_t[(m_mapLen + numBricks * m_brickLen) * sizeof(uint32_t)];
+	//-----------------
+	SPLVFrame decodedFrame;
+	decodedFrame.numBricks = numBricks;
+	decodedFrame.data = new uint8_t[(m_mapLen + numBricks * m_brickLen) * sizeof(uint32_t)];
 
 	//allocate temp buffer for compressed map:
 	//-----------------	
@@ -246,7 +170,7 @@ void SPLVDecoder::decompress_frame(std::basic_istream<char>& compressedStream, u
 
 	//read compressed map, generate full map:
 	//-----------------	
-	frame.read((char*)mapCompressed, m_mapLenCompressed * sizeof(uint32_t));
+	decompressedFrame.read((char*)mapCompressed, m_mapLenCompressed * sizeof(uint32_t));
 
 	uint32_t mapWidth  = m_metadata.width  / BRICK_SIZE;
 	uint32_t mapHeight = m_metadata.height / BRICK_SIZE;
@@ -262,22 +186,22 @@ void SPLVDecoder::decompress_frame(std::basic_istream<char>& compressedStream, u
 		uint32_t idxBit = idx % 32;
 
 		if((mapCompressed[idxArr] & (1u << idxBit)) != 0)
-			((uint32_t*)m_frames[frameIdx].data)[idx] = curBrickIdx++;
+			((uint32_t*)decodedFrame.data)[idx] = curBrickIdx++;
 		else
-			((uint32_t*)m_frames[frameIdx].data)[idx] = EMPTY_BRICK;
+			((uint32_t*)decodedFrame.data)[idx] = EMPTY_BRICK;
 	}
 
 	//read each brick:
 	//-----------------	
-	uint32_t* curBrick = (uint32_t*)m_frames[frameIdx].data + m_mapLen;
+	uint32_t* curBrick = (uint32_t*)decodedFrame.data + m_mapLen;
 	for(uint32_t i = 0; i < numBricks; i++)
 	{
 		//read number of voxels
 		uint32_t numVoxels;
-		frame.read((char*)&numVoxels, sizeof(uint32_t));
+		decompressedFrame.read((char*)&numVoxels, sizeof(uint32_t));
 
 		//read brick bitmap
-		decompress_brick_bitmap(frame, curBrick);
+		decode_brick_bitmap(decompressedFrame, curBrick);
 
 		//loop over every voxel, add to color buffer if present
 		uint32_t readVoxels = 0;
@@ -291,7 +215,7 @@ void SPLVDecoder::decompress_frame(std::basic_istream<char>& compressedStream, u
 			if((curBrick[arrIdx] & (uint32_t)(1 << bitIdx)) != 0)
 			{
 				uint8_t rgb[NUM_COLOR_COMPONENTS];
-				frame.read((char*)rgb, NUM_COLOR_COMPONENTS * sizeof(uint8_t));
+				decompressedFrame.read((char*)rgb, NUM_COLOR_COMPONENTS * sizeof(uint8_t));
 
 				uint32_t packedColor = (rgb[0] << 24) | (rgb[1] << 16) | (rgb[2] << 8) | 255;
 				curBrick[m_brickBitmapLen + idx] = packedColor;
@@ -307,12 +231,14 @@ void SPLVDecoder::decompress_frame(std::basic_istream<char>& compressedStream, u
 		curBrick += m_brickLen;
 	}
 
-	//cleanup:
+	//cleanup + return:
 	//-----------------
 	delete[] mapCompressed;
+
+	return decodedFrame;
 }
 
-void SPLVDecoder::decompress_brick_bitmap(std::basic_istream<char>& file, uint32_t* brick)
+void SPLVDecoder::decode_brick_bitmap(std::basic_istream<char>& file, uint32_t* brick)
 {
 	//loop over bitmap, read bytes until fill bitmap is fipped:
 	//-----------------
@@ -337,7 +263,7 @@ void SPLVDecoder::decompress_brick_bitmap(std::basic_istream<char>& file, uint32
 		curByte--;
 	}
 
-	//loop over bitmap, read bytes until fill bitmap is fipped:
+	//loop over bitmap, read bytes until fill bitmap is filled:
 	//-----------------
 	if((curByte & 0x7F) != 0)
 		throw std::invalid_argument("brick bitmap decoding had incorrect number of voxels, possibly corrupted data");
@@ -391,10 +317,15 @@ EMSCRIPTEN_BINDINGS(splv_decoder) {
 		.field("duration", &SPLVMetadata::duration)
 		;
 
+	emscripten::class_<SPLVFrameEmscripten>("SPLVFrame")
+		.function("get_map_buffer", &SPLVFrameEmscripten::get_map_buf)
+		.function("get_brick_buffer", &SPLVFrameEmscripten::get_brick_buf)
+		;
+
 	emscripten::class_<SPLVDecoder>("SPLVDecoder")
 		.constructor<emscripten::val>()
 		.function("get_metadata", &SPLVDecoder::get_metadata)
-		.function("get_map_buffer", &SPLVDecoder::get_map_buffer)
-		.function("get_brick_buffer", &SPLVDecoder::get_brick_buffer)
+		.function("get_frame", &SPLVDecoder::get_frame)
+		.function("free_frame", &SPLVDecoder::free_frame)
 		;
 }

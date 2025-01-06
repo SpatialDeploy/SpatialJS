@@ -7,6 +7,7 @@
 #define SPLV_DECODER_H
 
 #include <string>
+#include "uint8_vector_stream.hpp"
 #include <emscripten/bind.h>
 
 //-------------------------//
@@ -34,6 +35,25 @@ struct SPLVFrame
 	uint8_t* data;
 };
 
+class SPLVFrameEmscripten
+{
+public:
+	SPLVFrameEmscripten(const emscripten::val& mapBuf, const emscripten::val& brickBuf, uint8_t* dataPtr) :
+		m_mapBuf(mapBuf), m_brickBuf(brickBuf), m_dataPtr(dataPtr) 
+	{
+
+	}
+
+	emscripten::val get_map_buf() const { return m_mapBuf; }
+	emscripten::val get_brick_buf() const { return m_brickBuf; }
+	uint8_t* get_data_ptr() const { return m_dataPtr; }
+
+private:
+	emscripten::val m_mapBuf;
+	emscripten::val m_brickBuf;
+	uint8_t* m_dataPtr;
+};
+
 //-------------------------//
 
 class SPLVDecoder
@@ -43,12 +63,16 @@ public:
 	~SPLVDecoder();
 
 	SPLVMetadata get_metadata();
-	emscripten::val get_map_buffer(uint32_t frame);
-	emscripten::val get_brick_buffer(uint32_t frame);
+
+	SPLVFrameEmscripten get_frame(uint32_t idx);
+	void free_frame(const SPLVFrameEmscripten& frame);
 
 private:
+	std::vector<uint8_t> m_compressedBuffer;
+	Uint8VectorIStream* m_compressedVideo;
+
 	SPLVMetadata m_metadata;
-	SPLVFrame* m_frames;
+	uint64_t* m_frameTable;
 
 	//each of these is expressed in number of uint32_t's,
 	//since thats the data type expected by WebGPU
@@ -58,8 +82,8 @@ private:
 	uint32_t m_brickColorsLen;
 	uint32_t m_brickLen;
 
-	void decompress_frame(std::basic_istream<char>& file, uint32_t frameIdx);
-	void decompress_brick_bitmap(std::basic_istream<char>& file, uint32_t* brick);
+	SPLVFrame decode_frame();
+	void decode_brick_bitmap(std::basic_istream<char>& file, uint32_t* brick);
 };
 
 #endif //#ifndef SPLV_DECODER_H
