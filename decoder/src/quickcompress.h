@@ -72,7 +72,7 @@ typedef struct QCcompresserState
 	uint64_t high;
 	uint64_t numUnderflow;
 
-	uint8_t curByte;
+	uint64_t curBytes;
 	uint32_t numBitsWritten;
 
 	uint64_t startPos; //start position in the stream
@@ -85,7 +85,7 @@ typedef struct QCdecompresserState
 	uint64_t high;
 	uint64_t code;
 
-	uint8_t curByte;
+	uint64_t curBytes;
 	uint32_t numBitsRemaining;
 	uint64_t numBytesRemaining;
 } QCdecompresserState;
@@ -122,7 +122,7 @@ inline void qc_compresser_state_init(QCcompresserState* state)
 	state->low = 0;
 	state->high = QC_STATE_MASK;
 	state->numUnderflow = 0;
-	state->curByte = 0;
+	state->curBytes = 0;
 	state->numBitsWritten = 0;
 }
 
@@ -139,15 +139,15 @@ inline QCerror qc_compresser_start(QCcompresserState* state, std::ostream& out)
 
 inline QCerror qc_compressor_emit_bit(QCcompresserState* state, uint8_t bit, std::ostream& out)
 {
-	state->curByte = (state->curByte << 1) | bit;
+	state->curBytes = (state->curBytes << 1) | bit;
 	state->numBitsWritten++;
 
-	if(state->numBitsWritten == 8)
+	if(state->numBitsWritten == 64)
 	{
-		if(!out.put(state->curByte))
+		if(!out.write((const char*)&state->curBytes, sizeof(uint64_t)))
 			return QC_ERROR_WRITE;
 
-		state->curByte = 0;
+		state->curBytes = 0;
 		state->numBitsWritten = 0;
 	}
 
@@ -213,8 +213,8 @@ inline QCerror qc_compresser_finish(QCcompresserState* state, std::ostream& out)
 	//---------------
 	if(state->numBitsWritten > 0)
 	{
-		state->curByte <<= 8 - state->numBitsWritten;
-		if(!out.put(state->curByte))
+		state->curBytes <<= 64 - state->numBitsWritten;
+		if(!out.write((const char*)&state->curBytes, sizeof(uint64_t)))
 			return QC_ERROR_WRITE;
 	}
 
@@ -239,7 +239,7 @@ inline void qc_decompresser_state_init(QCdecompresserState* state)
 	state->low = 0;
 	state->high = QC_STATE_MASK;
 	state->code = 0;
-	state->curByte = 0;
+	state->curBytes = 0;
 	state->numBitsRemaining = 0;
 }
 
@@ -247,23 +247,22 @@ inline QCerror qc_decompresser_read_bit(QCdecompresserState* state, uint8_t* bit
 {
 	if(state->numBitsRemaining == 0)
 	{
-		if(state->numBytesRemaining == 0)
+		if(state->numBytesRemaining < sizeof(uint64_t))
 		{
 			*bit = 0;
 			return QC_SUCCESS;
 		}
 
-		int symbolRead = in.get();
-		if(symbolRead == EOF)
+		in.read((char*)&state->curBytes, sizeof(uint64_t));
+		if(in.gcount() < sizeof(uint64_t))
 			return QC_ERROR_READ;
 
-		state->curByte = (uint8_t)symbolRead;
-		state->numBitsRemaining = 8;
-		state->numBytesRemaining--;
+		state->numBitsRemaining = 64;
+		state->numBytesRemaining -= sizeof(uint64_t);
 	}
 
 	state->numBitsRemaining--;
-	*bit =  (state->curByte >> state->numBitsRemaining) & 0x1;
+	*bit = (state->curBytes >> state->numBitsRemaining) & 0x1;
 
 	return QC_SUCCESS;
 }
