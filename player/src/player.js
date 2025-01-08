@@ -181,23 +181,11 @@ async function render(state, raytraceState, timestamp)
 
 	if(state.lastFrame != frame)
 	{
-		if(state.nextFrame == undefined || state.nextFrame.num != frame)
-			state.videoFrameBufs = get_video_frame_bufs(raytraceState.inst, state.videoDecoder, frame);
-		else
-			state.videoFrameBufs = await state.nextFrame.promise;
+		//TODO: multithreaded decoding?
+		//TODO: separate rendering from decoding!!
 
-		const nextFrameNum = (frame + 1) % metadata.framecount;
-
-		//TODO: get bufs for multiple frames at once
-		//TODO: get bufs in separate worker thread, not just async
-
+		state.videoFrameBufs = get_video_frame_bufs(raytraceState.inst, state.videoDecoder, frame);
 		state.lastFrame = frame;
-		state.nextFrame = {
-			num: nextFrameNum,
-			promise: new Promise(function(resolve, reject) {
-				resolve(get_video_frame_bufs(raytraceState.inst, state.videoDecoder, nextFrameNum));
-			})
-		};
 	}
 
 	//render:
