@@ -13,7 +13,7 @@ SPLVDecoder::SPLVDecoder(emscripten::val videoBuf)
 	//create stream from input buffer:
 	//-----------------	
     emscripten::val compressedBufferMemoryView = videoBuf.call<emscripten::val>("slice");
-    m_compressedBuffer = emscripten::vecFromJSArray<uint8_t>(compressedBufferMemoryView);
+    m_compressedBuffer = emscripten::convertJSArrayToNumberVector<uint8_t>(compressedBufferMemoryView);
 	m_compressedVideo = new Uint8VectorIStream(m_compressedBuffer);
 
 	//read metadata:
