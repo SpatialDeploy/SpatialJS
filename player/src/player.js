@@ -64,7 +64,7 @@ async function main(root, videoPath)
 		videoScrubber: videoScrubber,
 		lastTime: 0,
 		videoTime: 0,
-		lastFrame: -1,
+		curFrame: -1,
 		playing: true,
 		scrubbing: false,
 		camera: camera
@@ -76,6 +76,15 @@ async function main(root, videoPath)
 
 	//begin rendering:
 	//-----------------
+
+	//TODO: get_decoded_frame calls pthread_join, which emscripten yells at us for
+	//(blocking the main thread)
+	state.videoDecoder.start_decoding_frame(0);
+	const firstFrame = state.videoDecoder.get_decoded_frame();
+
+	state.videoFrameBufs = get_video_frame_bufs(raytraceState.inst, state.videoDecoder, firstFrame)
+	state.curFrame = 0;
+
 	requestAnimationFrame((timestamp) => {
 		render(state, raytraceState, timestamp);
 	});
@@ -168,24 +177,45 @@ async function render(state, raytraceState, timestamp)
 	if(!state.scrubbing && state.videoScrubber != null)
 	{
 		var progress = ((state.videoTime / 1000) / metadata.duration) % 1.0;
-		progress *= 100.0
+		progress *= 100.0;
 
 		state.videoScrubber.value = progress;
 		state.videoScrubber.style.setProperty('--progress-width', `${progress}%`)
 	}
 
-	//get current frame:
+	//get new frame buffer, if it exists:
 	//-----------------
-	let frame = Math.floor((state.videoTime / 1000) * metadata.framerate);
-	frame = frame % metadata.framecount;
-
-	if(state.lastFrame != frame)
+	if(state.decodingFrame != undefined)
 	{
-		//TODO: multithreaded decoding?
-		//TODO: separate rendering from decoding!!
+		const frame = state.videoDecoder.try_get_decoded_frame();
+		if(frame.decoded)
+		{
+			state.videoFrameBufs = get_video_frame_bufs(raytraceState.inst, state.videoDecoder, frame);
+			state.curFrame = state.decodingFrame;
+			state.decodingFrame = undefined;
+		}
+	}
 
-		state.videoFrameBufs = get_video_frame_bufs(raytraceState.inst, state.videoDecoder, frame);
-		state.lastFrame = frame;
+	//start decoding next frame if needed:
+	//-----------------
+	let nextFrame = Math.floor((state.videoTime / 1000) * metadata.framerate);
+	nextFrame = nextFrame % metadata.framecount;
+
+	if(state.curFrame != nextFrame && state.decodingFrame == undefined)
+	{
+		//print any dropped frames (for testing)
+		/*var droppedFrames = [];
+		for(var i = (state.curFrame + 1) % metadata.framecount; i != nextFrame; i = (i + 1) % metadata.framecount)
+			droppedFrames.push(i);
+		
+		if(droppedFrames.length == 1)
+			console.warn("Dropped frame " + droppedFrames);
+		else if(droppedFrames.length > 1)
+			console.warn("Dropped frames " + droppedFrames);*/
+
+		//start decoding next frame (runs in background thread)
+		state.videoDecoder.start_decoding_frame(nextFrame);
+		state.decodingFrame = nextFrame;
 	}
 
 	//render:
@@ -196,6 +226,8 @@ async function render(state, raytraceState, timestamp)
 
 	render_raytracer(raytraceState, state.videoFrameBufs, view, proj, timestamp);
 
+	//request animation frame:
+	//-----------------
 	requestAnimationFrame((timestamp) => {
 		render(state, raytraceState, timestamp)
 	});
@@ -204,7 +236,7 @@ async function render(state, raytraceState, timestamp)
 //-------------------------//
 
 //gets the frame of a video as buffers to render
-function get_video_frame_bufs(inst, videoDecoder, frameIdx)
+function get_video_frame_bufs(inst, videoDecoder, frame)
 {
 	//extract size from metadata:
 	//-----------------
@@ -215,28 +247,21 @@ function get_video_frame_bufs(inst, videoDecoder, frameIdx)
 		depth: metadata.depth
 	};
 
-	//get frames from decoder:
-	//-----------------
-	let frame = videoDecoder.get_frame(frameIdx);
-
 	//upload buffers to WebGPU buffers:
 	//-----------------
-	let mapBuf = frame.get_map_buffer();
-	let brickBuf = frame.get_brick_buffer();
-
 	let mapBufGPU = inst.device.createBuffer({
 		label: 'voxel map buf',
-		size: mapBuf.length * Uint32Array.BYTES_PER_ELEMENT,
+		size: frame.mapBuffer.length * Uint32Array.BYTES_PER_ELEMENT,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
 	});
-	inst.device.queue.writeBuffer(mapBufGPU, 0, mapBuf);
+	inst.device.queue.writeBuffer(mapBufGPU, 0, frame.mapBuffer);
 
 	let brickBufGPU = inst.device.createBuffer({
 		label: 'voxel brick buf',
-		size: brickBuf.length * Uint32Array.BYTES_PER_ELEMENT,
+		size: frame.brickBuffer.length * Uint32Array.BYTES_PER_ELEMENT,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
 	});
-	inst.device.queue.writeBuffer(brickBufGPU, 0, brickBuf);
+	inst.device.queue.writeBuffer(brickBufGPU, 0, frame.brickBuffer);
 
 	//cleanup + return:
 	//-----------------

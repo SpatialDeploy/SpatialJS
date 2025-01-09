@@ -4,7 +4,7 @@
 #include "quickcompress.h"
 #include "morton_lut.hpp"
 
-#include <chrono>
+#include <pthread.h>
 
 //-------------------------//
 
@@ -12,8 +12,8 @@ SPLVDecoder::SPLVDecoder(emscripten::val videoBuf)
 {
 	//create stream from input buffer:
 	//-----------------	
-    emscripten::val compressedBufferMemoryView = videoBuf.call<emscripten::val>("slice");
-    m_compressedBuffer = emscripten::convertJSArrayToNumberVector<uint8_t>(compressedBufferMemoryView);
+	emscripten::val compressedBufferMemoryView = videoBuf.call<emscripten::val>("slice");
+	m_compressedBuffer = emscripten::convertJSArrayToNumberVector<uint8_t>(compressedBufferMemoryView);
 	m_compressedVideo = new Uint8VectorIStream(m_compressedBuffer);
 
 	//read metadata:
@@ -71,6 +71,12 @@ SPLVDecoder::SPLVDecoder(emscripten::val videoBuf)
 
 	m_compressedVideo->seekg(frameTablePtr, std::ios::beg);
 	m_compressedVideo->read((char*)m_frameTable, m_metadata.framecount * sizeof(uint64_t));
+
+	//init decoding frame data:
+	//-----------------
+	m_decodingThreadData = std::make_unique<DecodingThreadData>();
+	m_decodingThreadData->active = false;
+	m_decodingThreadData->decoder = this;
 }
 
 SPLVDecoder::~SPLVDecoder()
@@ -83,24 +89,31 @@ SPLVMetadata SPLVDecoder::get_metadata()
 	return m_metadata;
 }
 
-SPLVFrameEmscripten SPLVDecoder::get_frame(uint32_t idx)
+void SPLVDecoder::start_decoding_frame(uint32_t idx)
 {
-	//decode frame:
-	//-----------------
-	uint64_t framePtr = m_frameTable[idx];
-	m_compressedVideo->seekg(framePtr, std::ios::beg);
+	if(m_decodingThreadData->active) //finish decoding last frame
+	{
+		if(pthread_join(m_decodingThreadData->thread, nullptr) != 0)
+			throw std::runtime_error("failed to join with existing decoding thread");
 
-	SPLVFrame frame = decode_frame();
+		m_decodingThreadData->active = false;
+		delete m_decodingThreadData->frame.data; //were starting to decode a new frame, so free the old one
+	}
 
-	//create memory views:
-	//-----------------
-	emscripten::val mapBuf(emscripten::typed_memory_view(m_mapLen * sizeof(uint32_t), frame.data));
+	m_decodingThreadData->framePtr = m_frameTable[idx];
+	m_decodingThreadData->active = true;
+	
+	pthread_create(&m_decodingThreadData->thread, nullptr, &SPLVDecoder::start_decoding_thread, m_decodingThreadData.get());
+}
 
-	uint32_t brickBufSize = frame.numBricks * m_brickLen * sizeof(uint32_t);
-	uint32_t brickBufOffset = m_mapLen * sizeof(uint32_t);
-	emscripten::val brickBuf(emscripten::typed_memory_view(brickBufSize, frame.data + brickBufOffset));
+SPLVFrameEmscripten SPLVDecoder::get_decoded_frame()
+{
+	return join_decoding_thread(true);
+}
 
-	return SPLVFrameEmscripten(mapBuf, brickBuf, frame.data);
+SPLVFrameEmscripten SPLVDecoder::try_get_decoded_frame()
+{
+	return join_decoding_thread(false);
 }
 
 void SPLVDecoder::free_frame(const SPLVFrameEmscripten& frame)
@@ -240,6 +253,48 @@ void SPLVDecoder::decode_brick_bitmap(std::basic_istream<char>& file, uint32_t* 
 
 //-------------------------//
 
+void* SPLVDecoder::start_decoding_thread(void* arg) 
+{
+	DecodingThreadData* data = static_cast<DecodingThreadData*>(arg);
+	
+	data->decoder->m_compressedVideo->seekg(data->framePtr, std::ios::beg);
+	data->frame = data->decoder->decode_frame();
+
+	return nullptr;
+}
+
+SPLVFrameEmscripten SPLVDecoder::join_decoding_thread(bool wait)
+{
+	//check if decoding finished:
+	//-----------------
+	if(!m_decodingThreadData->active)
+		throw std::runtime_error("no frame is being decoded");
+
+	int joinResult;
+	if(wait)
+		joinResult = pthread_join(m_decodingThreadData->thread, nullptr);
+	else
+	{
+		int joinResult = pthread_tryjoin_np(m_decodingThreadData->thread, nullptr);
+		if(joinResult == EBUSY)
+			return SPLVFrameEmscripten();
+	}
+
+	m_decodingThreadData->active = false;
+
+	//create memory views:
+	//-----------------
+	emscripten::val mapBuf(emscripten::typed_memory_view(m_mapLen * sizeof(uint32_t), m_decodingThreadData->frame.data));
+
+	uint32_t brickBufSize = m_decodingThreadData->frame.numBricks * m_brickLen * sizeof(uint32_t);
+	uint32_t brickBufOffset = m_mapLen * sizeof(uint32_t);
+	emscripten::val brickBuf(emscripten::typed_memory_view(brickBufSize, m_decodingThreadData->frame.data + brickBufOffset));
+
+	return SPLVFrameEmscripten(mapBuf, brickBuf, m_decodingThreadData->frame.data);
+}
+
+//-------------------------//
+
 EMSCRIPTEN_BINDINGS(splv_decoder) {
 	emscripten::value_object<SPLVMetadata>("SPLVMetadata")
 		.field("width", &SPLVMetadata::width)
@@ -251,14 +306,17 @@ EMSCRIPTEN_BINDINGS(splv_decoder) {
 		;
 
 	emscripten::class_<SPLVFrameEmscripten>("SPLVFrame")
-		.function("get_map_buffer", &SPLVFrameEmscripten::get_map_buf)
-		.function("get_brick_buffer", &SPLVFrameEmscripten::get_brick_buf)
+		.property("decoded", &SPLVFrameEmscripten::decoded)
+		.property("mapBuffer", &SPLVFrameEmscripten::get_map_buf)
+		.property("brickBuffer", &SPLVFrameEmscripten::get_brick_buf)
 		;
 
 	emscripten::class_<SPLVDecoder>("SPLVDecoder")
 		.constructor<emscripten::val>()
 		.function("get_metadata", &SPLVDecoder::get_metadata)
-		.function("get_frame", &SPLVDecoder::get_frame)
+		.function("start_decoding_frame", &SPLVDecoder::start_decoding_frame)
+		.function("get_decoded_frame", &SPLVDecoder::get_decoded_frame)
+		.function("try_get_decoded_frame", &SPLVDecoder::try_get_decoded_frame)
 		.function("free_frame", &SPLVDecoder::free_frame)
 		;
 }

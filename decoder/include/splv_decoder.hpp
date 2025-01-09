@@ -44,13 +44,20 @@ public:
 
 	}
 
+	SPLVFrameEmscripten() :
+		m_dataPtr(nullptr)
+	{
+
+	}
+
+	bool decoded() const { return m_dataPtr != nullptr; }
 	emscripten::val get_map_buf() const { return m_mapBuf; }
 	emscripten::val get_brick_buf() const { return m_brickBuf; }
 	uint8_t* get_data_ptr() const { return m_dataPtr; }
 
 private:
-	emscripten::val m_mapBuf;
-	emscripten::val m_brickBuf;
+	emscripten::val m_mapBuf = emscripten::val::undefined();
+	emscripten::val m_brickBuf = emscripten::val::undefined();
 	uint8_t* m_dataPtr;
 };
 
@@ -64,7 +71,10 @@ public:
 
 	SPLVMetadata get_metadata();
 
-	SPLVFrameEmscripten get_frame(uint32_t idx);
+	void start_decoding_frame(uint32_t idx);
+	SPLVFrameEmscripten get_decoded_frame();
+	SPLVFrameEmscripten try_get_decoded_frame();
+
 	void free_frame(const SPLVFrameEmscripten& frame);
 
 private:
@@ -84,6 +94,23 @@ private:
 
 	SPLVFrame decode_frame();
 	void decode_brick_bitmap(std::basic_istream<char>& file, uint32_t* brick);
+
+	//-------------------------//
+
+	struct DecodingThreadData 
+	{
+		SPLVDecoder* decoder;
+
+		uint64_t framePtr;
+		SPLVFrame frame;
+		
+		pthread_t thread;
+		bool active;
+	};
+	std::unique_ptr<DecodingThreadData> m_decodingThreadData;
+
+	static void* start_decoding_thread(void* arg);
+	SPLVFrameEmscripten join_decoding_thread(bool wait);
 };
 
 #endif //#ifndef SPLV_DECODER_H
