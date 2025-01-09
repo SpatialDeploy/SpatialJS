@@ -199,7 +199,7 @@ async function create_raytrace_pipeline(inst)
 {
 	//create shader module:
 	//-----------------
-	const module = inst.device.createShaderModule({
+	const shaderModule = inst.device.createShaderModule({
         label: 'raytrace shader',
         code: RAYTRACER_SHADER_SRC,
     });
@@ -210,7 +210,7 @@ async function create_raytrace_pipeline(inst)
 		label: 'raytrace pipeline',
 		layout: 'auto',
 		compute: {
-			module
+			shaderModule
 		}
 	});
 
@@ -226,7 +226,7 @@ async function create_quad_pipeline(inst)
 {
 	//create shader module:
 	//-----------------
-	const module = inst.device.createShaderModule({
+	const shaderModule = inst.device.createShaderModule({
         label: 'quad shader',
         code: QUAD_SHADER_SRC,
     });
@@ -238,7 +238,7 @@ async function create_quad_pipeline(inst)
         layout: 'auto', //automatically generate binding group
         vertex: {
 			entryPoint: 'vs',
-			module: module,
+			module: shaderModule,
 			buffers: [
 				{
 					arrayStride: (2 + 2) * 4, //2 component pos, 2 component uv, each 4 byte floats
