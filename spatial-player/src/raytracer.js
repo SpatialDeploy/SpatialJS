@@ -210,7 +210,7 @@ async function create_raytrace_pipeline(inst)
 		label: 'raytrace pipeline',
 		layout: 'auto',
 		compute: {
-			shaderModule
+			module: shaderModule
 		}
 	});
 
@@ -251,7 +251,7 @@ async function create_quad_pipeline(inst)
         },
         fragment: {
 			entryPoint: 'fs',
-			module: module,
+			module: shaderModule,
 			targets: [{ format: inst.presentationFormat }],
         },
     });
