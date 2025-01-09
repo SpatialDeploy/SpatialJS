@@ -3,20 +3,26 @@ This project is capable of decoding and displaying a voxel-based spatial (4D vid
 
 The decoder is written in C++ and compiled to WASM, and the player is written in JavaScript using WebGPU for efficient rendering.
 
+# Installation
+To include this player in your own project, you can simply install the npm package:
+```bash
+npm install spatial-player
+```
+
 # Usage
-To include an SPLV player component in your project, simply use an `splv-player` compoent in your HTML. For example:
+To include an SPLV player component in your project, simply use an `splv-player` component in your HTML. For example:
 ```html
 <div style="width: 100%; height: 100%; display: flex;">
 	<splv-player src="videos/my_spatial.splv"></splv-player>
 </div>
 ```
-You can specify which spatial you want to play with the `src` attribute. To define the `splv-player` component, you must include `player.js`:
+You can specify which spatial you want to play with the `src` attribute. To define the `splv-player` component, you must first include the installed `npm` module:
 ```html
 <script type="module">
-	import './src/player.js';
+	import 'spatial-player';
 </script>
 ```
-This will include the web component.
+This will make the web component available.
 
 # Building (Decoder)
 Most of this project is written in JavaScript/WGSL, and so doesn't require compilation. The decoder, however, is written in C++ and must be built. The decoder must be compiled to WASM using Emscripten. It has the following dependencies:
