@@ -4,6 +4,7 @@
  */
 
 import {vec3, mat4} from './math.js';	
+import { RAYTRACER_SHADER_SRC, QUAD_SHADER_SRC } from './shaders.js';
 
 //-------------------------//
 
@@ -198,11 +199,9 @@ async function create_raytrace_pipeline(inst)
 {
 	//create shader module:
 	//-----------------
-	const shaderSrc = await fetch_shader_src("raytrace.wgsl")
-
 	const module = inst.device.createShaderModule({
         label: 'raytrace shader',
-        code: shaderSrc,
+        code: RAYTRACER_SHADER_SRC,
     });
 
 	//create compute pipeline:
@@ -227,11 +226,9 @@ async function create_quad_pipeline(inst)
 {
 	//create shader module:
 	//-----------------
-	const shaderSrc = await fetch_shader_src("quad.wgsl")
-
 	const module = inst.device.createShaderModule({
         label: 'quad shader',
-        code: shaderSrc,
+        code: QUAD_SHADER_SRC,
     });
 
 	//create render pipeline:
@@ -381,16 +378,4 @@ function create_bind_groups(inst, raytracePipeline, quadPipeline, finalTexture, 
 		quadGroup: quadBindGroup,
 		raytraceGroup: raytraceBindGroup
 	};
-}
-
-//-------------------------//
-
-//loads shader source code from a given url
-async function fetch_shader_src(url)
-{
-	const response = await fetch("shaders/" + url);
-	if(!response.ok)
-		throw Error(`failed to load shader from ${url} with status ${response.statusText}`);
-
-	return response.text();
 }

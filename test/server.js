@@ -12,9 +12,9 @@ app.use((req, res, next) => {
 });
 
 // Serve static files from the "public" directory (adjust this path based on your project structure)
-app.use(express.static(path.join(__dirname, 'player')));
+app.use(express.static(path.join(__dirname, '.')));
 
-// Start the server
+// Start the server 
 app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
 });

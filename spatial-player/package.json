@@ -1,0 +1,19 @@
+{
+  "name": "spatial-player",
+  "version": "1.0.1",
+  "description": "3D videos on the web",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SpatialDeploy/SpatialJS.git"
+  },
+  "author": "True3D",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/SpatialDeploy/SpatialJS/issues"
+  },
+  "homepage": "https://github.com/SpatialDeploy/SpatialJS#readme"
+}
