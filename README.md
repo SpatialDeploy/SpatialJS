@@ -1,7 +1,7 @@
 # SPLV Player
 This project is capable of decoding and displaying a voxel-based spatial (4D video, `.splv`) on the web. The player is packaged as a web component so it can easily be included in your project.
 
-![spatial_video](https://github.com/user-attachments/assets/5e56d5d3-cf4b-49e3-bc7c-80b1473ea5bd)
+![spatial_video](https://github.com/user-attachments/assets/aa2ee0e5-fe17-488b-8ec9-cbd7a599c965)
 
 
 The decoder is written in C++ and compiled to WASM, and the player is written in JavaScript using WebGPU for efficient rendering.
