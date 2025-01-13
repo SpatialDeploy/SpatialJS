@@ -12,8 +12,11 @@ Spatial videos are an emerging video format that captures not just two-dimension
 This allows for:
 
 3D perspective shifts: Viewers can move around or rotate the scene.
+
 Depth-based effects: The video contains volumetric data for more immersive rendering.
+
 Web-based 3D experiences: Interact with 3D/4D content in a standard browser.
+
 The .splv file format encapsulates voxel data (position and color) for each frame. Our SPLV Player decodes and displays this data using modern browser capabilities such as WebGPU, enabling real-time rendering directly in the browser.
 
 
