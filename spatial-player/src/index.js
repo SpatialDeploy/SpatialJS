@@ -91,7 +91,7 @@ async function main(root, videoPath)
 
 	//set up canvas resize observer:
 	//-----------------
-    const observer = new ResizeObserver(entries => {		
+	const observer = new ResizeObserver(entries => {		
 		for (const entry of entries) 
 		{
 			let maxTexDim = raytraceState.inst.device.limits.maxTextureDimension2D;
@@ -110,21 +110,34 @@ async function main(root, videoPath)
 
 	//set up observers for camera controls:
 	//-----------------    
-    canvas.addEventListener('mousedown', (event) => {
+	canvas.addEventListener('mousedown', (event) => {
 		camera_mouse_down(state.camera, event);
-    });
-    
-    window.addEventListener('mousemove', (event) => {		
+	});
+	
+	window.addEventListener('mousemove', (event) => {		
 		camera_mouse_moved(state.camera, event);
-    });
-    
-    window.addEventListener('mouseup', (event) => {		
+	});
+	
+	window.addEventListener('mouseup', (event) => {		
 		camera_mouse_up(state.camera, event);
-    });
+	});
 
 	canvas.addEventListener('wheel', (event) => {		
 		camera_scrolled(state.camera, event.deltaY);
 		event.preventDefault();
+	});
+
+	canvas.addEventListener('touchstart', (event) => {
+		camera_touch_start(state.camera, event);
+	});
+	
+	window.addEventListener('touchmove', (event) => {
+		camera_touch_moved(state.camera, event);
+		event.preventDefault();
+	}, { passive: false });
+	
+	window.addEventListener('touchend', (event) => {
+		camera_touch_end(state.camera, event);
 	});
 
 	//set up observers for video controls:
@@ -310,8 +323,8 @@ function camera_init()
 	const scrollSens = 0.001;
 
 	const initialRadius = (radiusMin + radiusMax) / 2.0;
-    const intialTheta = Math.PI / 4;
-    const initialPhi = Math.PI / 4;
+	const intialTheta = Math.PI / 4;
+	const initialPhi = Math.PI / 4;
 
 	const startX = 0;
 	const startY = 0;
@@ -380,6 +393,72 @@ function camera_scrolled(camera, deltaY)
 	camera.radius = Math.min(camera.radius, camera.radiusMax);
 }
 
+function camera_touch_start(camera, event) 
+{
+	if(event.touches.length === 1) 
+	{
+		camera.startX = event.touches[0].clientX;
+		camera.startY = event.touches[0].clientY;
+		camera.dragging = true;
+	} 
+	else if(event.touches.length === 2) 
+	{
+		camera.dragging = false;
+		const touch1 = event.touches[0];
+		const touch2 = event.touches[1];
+		camera.pinchStartDistance = Math.hypot(
+			touch2.clientX - touch1.clientX,
+			touch2.clientY - touch1.clientY
+		);
+	}
+}
+
+function camera_touch_moved(camera, event) 
+{
+	if(event.touches.length === 1 && camera.dragging) 
+	{
+		// Handle single touch drag
+		const touch = event.touches[0];
+		const deltaX = touch.clientX - camera.startX;
+		const deltaY = touch.clientY - camera.startY;
+		
+		camera.theta -= deltaX * camera.sens;
+		camera.phi += deltaY * camera.sens;
+		camera.phi = Math.max(camera.phi, -Math.PI / 2);
+		camera.phi = Math.min(camera.phi, Math.PI / 2);
+		
+		camera.startX = touch.clientX;
+		camera.startY = touch.clientY;
+	} 
+	else if(event.touches.length === 2) 
+	{
+		const touch1 = event.touches[0];
+		const touch2 = event.touches[1];
+		const currentDistance = Math.hypot(
+			touch2.clientX - touch1.clientX,
+			touch2.clientY - touch1.clientY
+		);
+		
+		const deltaDistance = camera.pinchStartDistance - currentDistance;
+		camera_scrolled(camera, deltaDistance);
+		
+		camera.pinchStartDistance = currentDistance;
+	}
+}
+
+function camera_touch_end(camera, event) 
+{
+	if(event.touches.length === 0) 
+	{
+		camera.dragging = false;
+	} 
+	else if(event.touches.length === 1) 
+	{
+		camera.startX = event.touches[0].clientX;
+		camera.startY = event.touches[0].clientY;
+	}
+}
+
 //-------------------------//
 
 //loads a voxel video file from a given url
@@ -396,26 +475,26 @@ async function fetch_video_file(url)
 
 class SPLVPlayer extends HTMLElement 
 {
-    constructor() 
+	constructor() 
 	{
-        super();
-        this.attachShadow({ mode: 'open' });
-    }
+		super();
+		this.attachShadow({ mode: 'open' });
+	}
 
-    connectedCallback() 
+	connectedCallback() 
 	{
-        this.render();
-    }
+		this.render();
+	}
 
-    render() 
+	render() 
 	{
-        this.shadowRoot.innerHTML = `
+		this.shadowRoot.innerHTML = `
 			<style>
 				:host {
 					display: inline-block;
 					width: 100%;
 					height: 100%;
-            	}
+				}
 
 				#canvas_webgpu {
 					position: absolute;
@@ -492,7 +571,7 @@ class SPLVPlayer extends HTMLElement
 					<input type="range" id="video_scrubber" min="0" max="100" value="0">
 				</div>
 			</div>
-        `;
+		`;
 
 		const src = this.getAttribute('src')
 		if(src == null)
@@ -503,7 +582,7 @@ class SPLVPlayer extends HTMLElement
 
 		main(this.shadowRoot, src)
 			.catch((error) => alert(`FATAL ERROR: ${error.message}`));
-    }
+	}
 }
 
 customElements.define('splv-player', SPLVPlayer);
