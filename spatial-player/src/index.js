@@ -69,7 +69,9 @@ async function main(root, attributes)
 		scrubbing: false,
 		camera: camera,
 		renderParams: {
-			showBoundingBox: attributes.showBoundingBox
+			showBoundingBox: attributes.showBoundingBox,
+			topColor: attributes.topColor,
+			botColor: attributes.botColor
 		}
 	};
 
@@ -248,7 +250,7 @@ async function render(state, raytraceState, timestamp)
 		raytraceState, 
 		state.videoFrameBufs, 
 		view, proj, 
-		state.renderParams.showBoundingBox, 
+		state.renderParams, 
 		timestamp
 	);
 
@@ -611,11 +613,19 @@ class SPLVPlayer extends HTMLElement
 				alert('WARNING: invalid option for \"bounding-box\", must either be \"show\" or \"hide\"');
 		}
 
+		const topColorStr = this.getAttribute('top-color') || '0 0 0 0';
+		const topColor = topColorStr.split(' ').map(Number).map((x) => x / 255.0);
+
+		const botColorStr = this.getAttribute('bot-color') || '0 0 0 0';
+		const botColor = botColorStr.split(' ').map(Number).map((x) => x / 255.0);
+
 		//start player:
 		//-----------------
 		const attributes = {
 			videoPath: src,
-			showBoundingBox: showBoundingBox
+			showBoundingBox: showBoundingBox,
+			topColor: topColor,
+			botColor: botColor
 		};
 
 		this.metadataPromise = main(this.shadowRoot, attributes)

@@ -35,17 +35,6 @@ struct VertOut
 
 @fragment fn fs(@location(0) uv: vec2f) -> @location(0) vec4f 
 {
-	/*if(uv.x > uv.y)
-	{
-		return vec4f(0.0, 0.0, 0.0, 1.0);
-	}
-	else
-	{
-		return vec4f(1.0);
-	}*/
-
-	var color = textureSample(u_image, u_imageSampler, uv).xyz;
-	return vec4f(color, 1.0);
-
-	//return vec4f(uv, 0.5, 1.0);
+	var color = textureSample(u_image, u_imageSampler, uv);
+	return vec4f(color.rgb * color.a, color.a);
 }

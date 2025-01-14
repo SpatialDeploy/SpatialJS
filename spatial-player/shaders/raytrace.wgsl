@@ -13,7 +13,7 @@ const BRICK_STRIDE = (BRICK_BITMAP_LEN + BRICK_COLORS_LEN);
 const EMPTY_BRICK = 0xFFFFFFFF;
 
 const BOUNDING_BOX_WIDTH = 0.01;
-const BOUNDING_BOX_COLOR = vec3f(0.0);
+const BOUNDING_BOX_COLOR = vec4f(0.0, 0.0, 0.0, 1.0);
 
 //-------------------------//
 
@@ -23,7 +23,10 @@ struct RenderParams
 	invProj : mat4x4f,
 	
 	mapSize : vec3u,
-	showBoundingBox : u32
+	showBoundingBox : u32,
+
+	backroundColorTop : vec4f,
+	backroundColorBot : vec4f
 }
 
 //-------------------------//
@@ -50,10 +53,10 @@ fn intersect_aabb(boxMin : vec3f, boxMax : vec3f, rayPos : vec3f, invRayDir : ve
 	return vec2f(tNear, tFar);
 }
 
-fn background_color(rayDir : vec3f) -> vec3f
+fn background_color(rayDir : vec3f) -> vec4f
 {
 	let a = rayDir.y * 0.5 + 0.5;
-	return mix(vec3f(0.71, 0.85, 0.90), vec3f(0.00, 0.45, 0.74), a);
+	return mix(u_renderParams.backroundColorBot, u_renderParams.backroundColorTop, a);
 }
 
 //-------------------------//
@@ -297,7 +300,7 @@ fn intersect_map(rayPosIn : vec3f, rayDir : vec3f, invRayDir : vec3f) -> Interse
 
 	//trace through volume:
 	//---------------
-	var color : vec3f;
+	var color : vec4f;
 	if(intersect.x > intersect.y || intersect.y < 0.0)
 	{
 		color = background_color(rayDir);
@@ -320,7 +323,7 @@ fn intersect_map(rayPosIn : vec3f, rayDir : vec3f, invRayDir : vec3f) -> Interse
 
 		if(result.hit)
 		{
-			color = result.color;
+			color = vec4f(result.color, 1.0);
 		}
 		else
 		{
@@ -337,5 +340,5 @@ fn intersect_map(rayPosIn : vec3f, rayDir : vec3f, invRayDir : vec3f) -> Interse
 
 	//write final color:
 	//---------------
-	textureStore(u_outTexture, writePos, vec4f(color, 1.0));
+	textureStore(u_outTexture, writePos, color);
 }

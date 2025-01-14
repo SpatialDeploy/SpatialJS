@@ -16,7 +16,7 @@ export const RAYTRACER_SHADER_SRC = `
 	const EMPTY_BRICK = 0xFFFFFFFF;
 
 	const BOUNDING_BOX_WIDTH = 0.01;
-	const BOUNDING_BOX_COLOR = vec3f(0.0);
+	const BOUNDING_BOX_COLOR = vec4f(0.0, 0.0, 0.0, 1.0);
 
 	//-------------------------//
 
@@ -26,7 +26,10 @@ export const RAYTRACER_SHADER_SRC = `
 		invProj : mat4x4f,
 		
 		mapSize : vec3u,
-		showBoundingBox : u32
+		showBoundingBox : u32,
+
+		backroundColorTop : vec4f,
+		backroundColorBot : vec4f
 	}
 
 	//-------------------------//
@@ -53,10 +56,10 @@ export const RAYTRACER_SHADER_SRC = `
 		return vec2f(tNear, tFar);
 	}
 
-	fn background_color(rayDir : vec3f) -> vec3f
+	fn background_color(rayDir : vec3f) -> vec4f
 	{
 		let a = rayDir.y * 0.5 + 0.5;
-		return mix(vec3f(0.71, 0.85, 0.90), vec3f(0.00, 0.45, 0.74), a);
+		return mix(u_renderParams.backroundColorBot, u_renderParams.backroundColorTop, a);
 	}
 
 	//-------------------------//
@@ -300,7 +303,7 @@ export const RAYTRACER_SHADER_SRC = `
 
 		//trace through volume:
 		//---------------
-		var color : vec3f;
+		var color : vec4f;
 		if(intersect.x > intersect.y || intersect.y < 0.0)
 		{
 			color = background_color(rayDir);
@@ -323,7 +326,7 @@ export const RAYTRACER_SHADER_SRC = `
 
 			if(result.hit)
 			{
-				color = result.color;
+				color = vec4f(result.color, 1.0);
 			}
 			else
 			{
@@ -340,7 +343,7 @@ export const RAYTRACER_SHADER_SRC = `
 
 		//write final color:
 		//---------------
-		textureStore(u_outTexture, writePos, vec4f(color, 1.0));
+		textureStore(u_outTexture, writePos, color);
 	}
 `
 
@@ -382,18 +385,7 @@ export const QUAD_SHADER_SRC = `
 
 	@fragment fn fs(@location(0) uv: vec2f) -> @location(0) vec4f 
 	{
-		/*if(uv.x > uv.y)
-		{
-			return vec4f(0.0, 0.0, 0.0, 1.0);
-		}
-		else
-		{
-			return vec4f(1.0);
-		}*/
-
-		var color = textureSample(u_image, u_imageSampler, uv).xyz;
-		return vec4f(color, 1.0);
-
-		//return vec4f(uv, 0.5, 1.0);
+		var color = textureSample(u_image, u_imageSampler, uv);
+		return vec4f(color.rgb * color.a, color.a);
 	}
 `

@@ -64,7 +64,7 @@ export async function init_raytracer(canvas, width, height)
 	};
 }
 
-export async function render_raytracer(state, videoFrameBufs, view, proj, showBoundingBox, timestamp)
+export async function render_raytracer(state, videoFrameBufs, view, proj, renderParams, timestamp)
 {
 	//create bind groups with new video bufs:
 	//-----------------
@@ -100,8 +100,17 @@ export async function render_raytracer(state, videoFrameBufs, view, proj, showBo
 	let mapHeight = videoFrameBufs.volumeSize.height / BRICK_SIZE
 	let mapDepth = videoFrameBufs.volumeSize.depth / BRICK_SIZE
 	uniformBufUintData.set(
-		[mapWidth, mapHeight, mapDepth, showBoundingBox ? 1 : 0],
+		[mapWidth, mapHeight, mapDepth, renderParams.showBoundingBox ? 1 : 0],
 		invView.length + invProj.length
+	);
+
+	uniformBufFloatData.set(
+		renderParams.topColor,
+		invView.length + invProj.length + 4
+	);
+	uniformBufFloatData.set(
+		renderParams.botColor,
+		invView.length + invProj.length + 4 + renderParams.topColor.length
 	);
 
 	state.inst.device.queue.writeBuffer(state.raytraceUniformBuf, 0, uniformBufData); //TODO: try to map manually and copy from a staging buffer (couldn't get it to work before)
@@ -181,7 +190,8 @@ async function init_webgpu(canvas)
 	const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 	context.configure({
 		device: device,
-		format: presentationFormat
+		format: presentationFormat,
+		alphaMode: 'premultiplied'
 	});
 
 	//wrap everything into object and return:
@@ -252,7 +262,21 @@ async function create_quad_pipeline(inst)
         fragment: {
 			entryPoint: 'fs',
 			module: shaderModule,
-			targets: [{ format: inst.presentationFormat }],
+			targets: [{ 
+				format: inst.presentationFormat,
+				blend: {
+					color: {
+						srcFactor: "src-alpha",
+						dstFactor: "one-minus-src-alpha",
+						operation: "add",
+					},
+					alpha: {
+						srcFactor: "src-alpha",
+						dstFactor: "one-minus-src-alpha",
+						operation: "add",
+					},
+				}
+			}],
         },
     });
 
@@ -262,8 +286,7 @@ async function create_quad_pipeline(inst)
         label: 'quad render pass',
         colorAttachments: [
 			{
-				clearValue: [0.3, 0.3, 0.3, 1],
-				loadOp: 'clear',
+				loadOp: 'load',
 				storeOp: 'store',
 			},
         ],
@@ -312,6 +335,7 @@ function create_raytrace_uniform_buf(inst)
 	let size = 2 * (4 * 4 * Float32Array.BYTES_PER_ELEMENT); //2 4x4 matrices of floats
 	size += 3 * Uint32Array.BYTES_PER_ELEMENT; //3-component size vector
 	size += Uint32Array.BYTES_PER_ELEMENT; //uint to show/hide bounding box
+	size += 2 * (4 * Float32Array.BYTES_PER_ELEMENT); //2 4-component vectors of colors
 
 	const buf = inst.device.createBuffer({
 		size: size,
