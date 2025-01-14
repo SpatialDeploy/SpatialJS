@@ -170,6 +170,10 @@ async function main(root, attributes)
 			state.scrubbing = false;
 		});
 	}
+
+	//return video metadata to expose to api:
+	//-----------------
+	return state.videoDecoder.get_metadata();
 }
 
 //-------------------------//
@@ -495,6 +499,12 @@ class SPLVPlayer extends HTMLElement
 		this.render();
 	}
 
+	async get_metadata()
+	{
+		//TODO: what if this.metadatapromise hasnt been set yet?
+		return this.metadataPromise;
+	}
+
 	render() 
 	{
 		this.shadowRoot.innerHTML = `
@@ -608,7 +618,7 @@ class SPLVPlayer extends HTMLElement
 			showBoundingBox: showBoundingBox
 		};
 
-		main(this.shadowRoot, attributes)
+		this.metadataPromise = main(this.shadowRoot, attributes)
 			.catch((error) => alert(`FATAL ERROR: ${error.message}`));
 	}
 }

@@ -310,7 +310,8 @@ async function create_quad_pipeline(inst)
 function create_raytrace_uniform_buf(inst)
 {
 	let size = 2 * (4 * 4 * Float32Array.BYTES_PER_ELEMENT); //2 4x4 matrices of floats
-	size += 4 * Uint32Array.BYTES_PER_ELEMENT; //3-component size vector (+ padding)
+	size += 3 * Uint32Array.BYTES_PER_ELEMENT; //3-component size vector
+	size += Uint32Array.BYTES_PER_ELEMENT; //uint to show/hide bounding box
 
 	const buf = inst.device.createBuffer({
 		size: size,
