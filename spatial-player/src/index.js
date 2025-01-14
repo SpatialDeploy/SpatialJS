@@ -18,7 +18,7 @@ const RESOLUTION_SCALE = 2; //multiplier on the canvas resolution to fix low-res
 
 //-------------------------//
 
-async function main(root, videoPath)
+async function main(root, attributes)
 {
 	//load splv decoder module:
 	//-----------------
@@ -49,7 +49,7 @@ async function main(root, videoPath)
 	var videoDecoder; //NOTE: need to call videoDecoder.delete() to avoid memory leak!!!!!
 	try
 	{
-		let video = await fetch_video_file(videoPath);
+		let video = await fetch_video_file(attributes.videoPath);
 		videoDecoder = new DecoderModule.SPLVDecoder(new Uint8Array(video));
 	}
 	catch(e)
@@ -67,7 +67,10 @@ async function main(root, videoPath)
 		curFrame: -1,
 		playing: true,
 		scrubbing: false,
-		camera: camera
+		camera: camera,
+		renderParams: {
+			showBoundingBox: attributes.showBoundingBox
+		}
 	};
 
 	//initialize raytracer:
@@ -237,7 +240,13 @@ async function render(state, raytraceState, timestamp)
 	const view = camera_get_view(state.camera);
 	const proj = mat4.perspective(1.4, aspectRatio, 0.1, 100.0);
 
-	render_raytracer(raytraceState, state.videoFrameBufs, view, proj, timestamp);
+	render_raytracer(
+		raytraceState, 
+		state.videoFrameBufs, 
+		view, proj, 
+		state.renderParams.showBoundingBox, 
+		timestamp
+	);
 
 	//request animation frame:
 	//-----------------
@@ -573,14 +582,33 @@ class SPLVPlayer extends HTMLElement
 			</div>
 		`;
 
-		const src = this.getAttribute('src')
+		//get attributes:
+		//-----------------
+		const src = this.getAttribute('src');
 		if(src == null)
 		{
 			alert('FATAL ERROR: no source video specified');
 			return;
 		}
 
-		main(this.shadowRoot, src)
+		const boundingBox = this.getAttribute('bounding-box');
+		var showBoundingBox = false;
+		if(boundingBox != null)
+		{
+			if(boundingBox == "show")
+				showBoundingBox = true;
+			else if(boundingBox != "hide")
+				alert('WARNING: invalid option for \"bounding-box\", must either be \"show\" or \"hide\"');
+		}
+
+		//start player:
+		//-----------------
+		const attributes = {
+			videoPath: src,
+			showBoundingBox: showBoundingBox
+		};
+
+		main(this.shadowRoot, attributes)
 			.catch((error) => alert(`FATAL ERROR: ${error.message}`));
 	}
 }

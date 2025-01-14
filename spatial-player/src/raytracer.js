@@ -64,7 +64,7 @@ export async function init_raytracer(canvas, width, height)
 	};
 }
 
-export async function render_raytracer(state, videoFrameBufs, view, proj, timestamp)
+export async function render_raytracer(state, videoFrameBufs, view, proj, showBoundingBox, timestamp)
 {
 	//create bind groups with new video bufs:
 	//-----------------
@@ -100,7 +100,7 @@ export async function render_raytracer(state, videoFrameBufs, view, proj, timest
 	let mapHeight = videoFrameBufs.volumeSize.height / BRICK_SIZE
 	let mapDepth = videoFrameBufs.volumeSize.depth / BRICK_SIZE
 	uniformBufUintData.set(
-		[mapWidth, mapHeight, mapDepth],
+		[mapWidth, mapHeight, mapDepth, showBoundingBox ? 1 : 0],
 		invView.length + invProj.length
 	);
 

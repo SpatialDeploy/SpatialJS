@@ -12,6 +12,9 @@ const BRICK_STRIDE = (BRICK_BITMAP_LEN + BRICK_COLORS_LEN);
 
 const EMPTY_BRICK = 0xFFFFFFFF;
 
+const BOUNDING_BOX_WIDTH = 0.01;
+const BOUNDING_BOX_COLOR = vec3f(0.0);
+
 //-------------------------//
 
 struct RenderParams
@@ -19,7 +22,8 @@ struct RenderParams
 	invView : mat4x4f,
 	invProj : mat4x4f,
 	
-	mapSize : vec3u
+	mapSize : vec3u,
+	showBoundingBox : u32
 }
 
 //-------------------------//
@@ -143,6 +147,23 @@ fn intersect_brick(brick : u32, rayPosIn : vec3f, rayDir : vec3f, deltaDist : ve
 	}
 
 	return retval;
+}
+
+fn hit_bounding_box_edge(rayPos : vec3f, rayDir : vec3f, distToBox : f32, boxSize : vec3f) -> bool
+{
+	const ONE_MINUS_WIDTH = 1.0 - BOUNDING_BOX_WIDTH;
+
+	if(u_renderParams.showBoundingBox == 0 || distToBox < 0.0)
+	{
+		return false;
+	}
+
+	let hitPos = rayPos + rayDir * distToBox;
+	let normHitPos = abs(hitPos / boxSize);
+
+	return (normHitPos.x > ONE_MINUS_WIDTH && normHitPos.y > ONE_MINUS_WIDTH) ||
+	       (normHitPos.y > ONE_MINUS_WIDTH && normHitPos.z > ONE_MINUS_WIDTH) ||
+	       (normHitPos.z > ONE_MINUS_WIDTH && normHitPos.x > ONE_MINUS_WIDTH);
 }
 
 //-------------------------//
@@ -281,6 +302,10 @@ fn intersect_map(rayPosIn : vec3f, rayDir : vec3f, invRayDir : vec3f) -> Interse
 	{
 		color = background_color(rayDir);
 	}
+	else if(hit_bounding_box_edge(rayPos, rayDir, intersect.x, volumeMax))
+	{
+		color = BOUNDING_BOX_COLOR;
+	}
 	else
 	{
 		var startRayPos = rayPos;
@@ -299,7 +324,14 @@ fn intersect_map(rayPosIn : vec3f, rayDir : vec3f, invRayDir : vec3f) -> Interse
 		}
 		else
 		{
-			color = background_color(rayDir);
+			if(hit_bounding_box_edge(rayPos, rayDir, intersect.y, volumeMax))
+			{
+				color = BOUNDING_BOX_COLOR;
+			}
+			else
+			{
+				color = background_color(rayDir);
+			}
 		}
 	}
 
