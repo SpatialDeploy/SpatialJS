@@ -175,7 +175,46 @@ async function main(root, attributes)
 
 	//return video metadata to expose to api:
 	//-----------------
+	return state;
+}
+
+//-------------------------//
+
+function get_video_metadata(state)
+{
 	return state.videoDecoder.get_metadata();
+}
+
+async function set_bounding_box(statePromise, value)
+{
+	const state = await statePromise;
+	
+	value = value || 'show';
+	switch(value)
+	{
+	case 'show':
+		state.renderParams.showBoundingBox = true;
+		break;
+	case 'hide':
+		state.renderParams.showBoundingBox = false;
+		break;
+	default:
+		console.warn('invalid bounding-box value. Valid options are: "show" or "hide"');
+		break;
+	}
+}
+
+async function set_color(statePromise, top, value)
+{
+	const colorStr = value || '0 0 0 0';
+	const color = colorStr.split(' ').map(Number).map((x) => x / 255.0);
+
+	const state = await statePromise;
+
+	if(top)
+		state.renderParams.topColor = color;
+	else
+		state.renderParams.botColor = color;
 }
 
 //-------------------------//
@@ -496,15 +535,108 @@ class SPLVPlayer extends HTMLElement
 		this.attachShadow({ mode: 'open' });
 	}
 
+	static get observedAttributes()
+	{
+		//TODO: handle change in src
+		return ['video-controls', 'bounding-box', 'top-color', 'bot-color'];
+	}
+
 	connectedCallback() 
 	{
 		this.render();
 	}
 
+	attributeChangedCallback(name, oldValue, newValue)
+	{
+		if(oldValue == newValue)
+			return;
+
+		switch(name)
+		{
+		case 'bounding-box':
+			if(!this.mainPromise)
+				return;
+
+			set_bounding_box(this.mainPromise, newValue);
+			break;
+		case 'top-color':
+		case 'bot-color':
+			if(!this.mainPromise)
+				return;
+
+			set_color(this.mainPromise, name == 'top-color', newValue);
+			break;
+		case 'video-controls':
+			this.set_video_controls(newValue);
+			break;
+		default:
+			console.error('not yet implemented: ' + name);
+		}
+	}
+
 	async get_metadata()
 	{
-		//TODO: what if this.metadatapromise hasnt been set yet?
-		return this.metadataPromise;
+		//TODO: what if this.mainPromise hasnt been set yet?
+		return get_video_metadata(await this.mainPromise);
+	}
+
+	set_video_controls(value)
+	{
+		if(!this.shadowRoot)
+			return;
+
+		value = value || 'show';
+	
+		//get video controls:
+		//-----------------
+		const container = this.shadowRoot.querySelector('#video_container');
+		if(!container)
+		{
+			console.warn('video container element was not found!');
+			return;
+		}
+
+		const controls = this.shadowRoot.querySelector('#video_controls');
+		if(!controls)
+		{
+			console.warn('video controls element was not found!');
+			return;
+		}
+	
+		//remove any existing event listeners:
+		//-----------------
+		container.removeEventListener('mouseenter', this._show_video_controls);
+		container.removeEventListener('mouseleave', this._hide_video_controls);
+		
+		//set new style + event listeners:
+		//-----------------
+		switch (value) 
+		{
+			case 'show':
+				controls.style.display = 'flex';
+				controls.style.opacity = '1';
+				break;
+			case 'hide':
+				controls.style.display = 'none';
+				break;
+			case 'hover':
+				controls.style.display = 'flex';
+				controls.style.opacity = '0';
+				controls.style.transition = 'opacity 0.3s ease';
+				
+                this._show_video_controls = () => controls.style.opacity = '1';
+                this._hide_video_controls = () => controls.style.opacity = '0';
+
+				const container = this.shadowRoot.querySelector('#video_container');
+				container.addEventListener('mouseenter', this._show_video_controls);
+				container.addEventListener('mouseleave', this._hide_video_controls);
+				break;
+			default:
+				console.warn('invalid video-controls value. Valid options are: "show", "hide", "hover"');
+				controls.style.display = 'flex';
+				controls.style.opacity = '1';
+				break;
+		}
 	}
 
 	render() 
@@ -619,6 +751,9 @@ class SPLVPlayer extends HTMLElement
 		const botColorStr = this.getAttribute('bot-color') || '0 0 0 0';
 		const botColor = botColorStr.split(' ').map(Number).map((x) => x / 255.0);
 
+        const videoControls = this.getAttribute('video-controls') || 'show';
+        this.set_video_controls(videoControls);
+
 		//start player:
 		//-----------------
 		const attributes = {
@@ -628,7 +763,7 @@ class SPLVPlayer extends HTMLElement
 			botColor: botColor
 		};
 
-		this.metadataPromise = main(this.shadowRoot, attributes)
+		this.mainPromise = main(this.shadowRoot, attributes)
 			.catch((error) => alert(`FATAL ERROR: ${error.message}`));
 	}
 }
