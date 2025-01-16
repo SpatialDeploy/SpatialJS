@@ -106,11 +106,6 @@ void SPLVDecoder::start_decoding_frame(uint32_t idx)
 	pthread_create(&m_decodingThreadData->thread, nullptr, &SPLVDecoder::start_decoding_thread, m_decodingThreadData.get());
 }
 
-SPLVFrameEmscripten SPLVDecoder::get_decoded_frame()
-{
-	return join_decoding_thread(true);
-}
-
 SPLVFrameEmscripten SPLVDecoder::try_get_decoded_frame()
 {
 	return join_decoding_thread(false);
@@ -315,7 +310,6 @@ EMSCRIPTEN_BINDINGS(splv_decoder) {
 		.constructor<emscripten::val>()
 		.function("get_metadata", &SPLVDecoder::get_metadata)
 		.function("start_decoding_frame", &SPLVDecoder::start_decoding_frame)
-		.function("get_decoded_frame", &SPLVDecoder::get_decoded_frame)
 		.function("try_get_decoded_frame", &SPLVDecoder::try_get_decoded_frame)
 		.function("free_frame", &SPLVDecoder::free_frame)
 		;

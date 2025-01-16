@@ -29,7 +29,9 @@ export const RAYTRACER_SHADER_SRC = `
 		showBoundingBox : u32,
 
 		backroundColorTop : vec4f,
-		backroundColorBot : vec4f
+		backroundColorBot : vec4f,
+
+		isEmpty : u32
 	}
 
 	//-------------------------//
@@ -322,7 +324,15 @@ export const RAYTRACER_SHADER_SRC = `
 			startRayPos -= volumeMin;
 			startRayPos /= (volumeMax - volumeMin);
 
-			let result = intersect_map(startRayPos, rayDir, invRayDir);
+			var result : IntersectMapOut;
+			if(u_renderParams.isEmpty != 0)
+			{
+				result.hit = false;
+			}
+			else
+			{
+				result = intersect_map(startRayPos, rayDir, invRayDir);
+			}
 
 			if(result.hit)
 			{

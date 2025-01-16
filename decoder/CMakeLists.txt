@@ -32,6 +32,6 @@ add_custom_target(install_decoder
     DEPENDS ${PROJECT_NAME}
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_BINARY_DIR}/spl_decoder.js
-        ${CMAKE_CURRENT_SOURCE_DIR}/../spatials/src/spl_decoder.js
-    COMMENT "Installing spl_decoder.js to spatials/src directory"
+        ${CMAKE_CURRENT_SOURCE_DIR}/../spatial-player/src/spl_decoder.js
+    COMMENT "Installing spl_decoder.js to spatial-player/src directory"
 )

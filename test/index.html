@@ -13,21 +13,23 @@
 			import './node_modules/spatial-player/src/index.js';
 		</script>
 
-		<div style="width: 100%; height: 100%; display: flex; background-color: skyblue;">
-			<splv-player src="videos/sequence64.splv" bounding-box="show" top-color="230 240 230 255" bot-color="230 240 230 0" video-controls="hover"></splv-player>
+		<div style="width: 100%; height: 100%; display: flex;">
+			<splv-player src="videos/sequence64.splv" bounding-box="show" top-color="0 255 0 255" bot-color="0 0 255 255" video-controls="hover"></splv-player>
 		</div>
 
 		<script type="module">
 			const spatialComponent = document.querySelector('splv-player');
-			const metadata = await spatialComponent.get_metadata();
-			console.log(metadata);
+			spatialComponent.addEventListener('video-loaded', (e) => {
+				const metadata = spatialComponent.get_metadata();
+				console.log("video loaded with metadata:");
+				console.log(metadata);
+			});
 
 			await new Promise(r => setTimeout(r, 3000));
 			spatialComponent.setAttribute('video-controls', 'show');
 			spatialComponent.setAttribute('bounding-box', 'hide');
 			spatialComponent.setAttribute('top-color', '255 0 0 255');
 			spatialComponent.setAttribute('bot-color', '0 255 0 255');
-			console.log('here');
 		</script>
 	</body>
 </html>

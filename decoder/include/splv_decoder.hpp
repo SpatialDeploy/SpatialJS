@@ -72,7 +72,6 @@ public:
 	SPLVMetadata get_metadata();
 
 	void start_decoding_frame(uint32_t idx);
-	SPLVFrameEmscripten get_decoded_frame();
 	SPLVFrameEmscripten try_get_decoded_frame();
 
 	void free_frame(const SPLVFrameEmscripten& frame);

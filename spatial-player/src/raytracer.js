@@ -113,6 +113,11 @@ export async function render_raytracer(state, videoFrameBufs, view, proj, render
 		invView.length + invProj.length + 4 + renderParams.topColor.length
 	);
 
+	uniformBufUintData.set(
+		videoFrameBufs.empty ? 1 : 0,
+		invView.length + invProj.length + 4 + renderParams.topColor.length + renderParams.botColor.length
+	);
+
 	state.inst.device.queue.writeBuffer(state.raytraceUniformBuf, 0, uniformBufData); //TODO: try to map manually and copy from a staging buffer (couldn't get it to work before)
 
 	//run raytrace compute shader:
@@ -336,6 +341,7 @@ function create_raytrace_uniform_buf(inst)
 	size += 3 * Uint32Array.BYTES_PER_ELEMENT; //3-component size vector
 	size += Uint32Array.BYTES_PER_ELEMENT; //uint to show/hide bounding box
 	size += 2 * (4 * Float32Array.BYTES_PER_ELEMENT); //2 4-component vectors of colors
+	size += 4 * Uint32Array.BYTES_PER_ELEMENT; //uint for empty volume (+ padding)
 
 	const buf = inst.device.createBuffer({
 		size: size,

@@ -81,14 +81,11 @@ async function main(root, attributes)
 
 	//begin rendering:
 	//-----------------
-
-	//TODO: get_decoded_frame calls pthread_join, which emscripten yells at us for
-	//(blocking the main thread)
 	state.videoDecoder.start_decoding_frame(0);
-	const firstFrame = state.videoDecoder.get_decoded_frame();
+	state.decodingFrame = 0;
 
-	state.videoFrameBufs = get_video_frame_bufs(raytraceState.inst, state.videoDecoder, firstFrame)
-	state.curFrame = 0;
+	state.videoFrameBufs = get_video_frame_bufs(raytraceState.inst, state.videoDecoder, undefined);
+	state.curFrame = -1;
 
 	requestAnimationFrame((timestamp) => {
 		render(state, raytraceState, timestamp);
@@ -185,10 +182,8 @@ function get_video_metadata(state)
 	return state.videoDecoder.get_metadata();
 }
 
-async function set_bounding_box(statePromise, value)
+function set_bounding_box(state, value)
 {
-	const state = await statePromise;
-	
 	value = value || 'show';
 	switch(value)
 	{
@@ -204,12 +199,10 @@ async function set_bounding_box(statePromise, value)
 	}
 }
 
-async function set_color(statePromise, top, value)
+function set_color(state, top, value)
 {
 	const colorStr = value || '0 0 0 0';
 	const color = colorStr.split(' ').map(Number).map((x) => x / 255.0);
-
-	const state = await statePromise;
 
 	if(top)
 		state.renderParams.topColor = color;
@@ -305,6 +298,24 @@ async function render(state, raytraceState, timestamp)
 //gets the frame of a video as buffers to render
 function get_video_frame_bufs(inst, videoDecoder, frame)
 {
+	//ensure not empty:
+	//-----------------
+	var empty;
+	var mapBuf;
+	var brickBuf;
+	if(frame == undefined || frame.mapBuffer.length == 0 || frame.brickBuffer.length == 0)
+	{
+		empty = true;
+		mapBuf = new Uint32Array([0]); //dummy buffers so webgpu doesnt yell at us
+		brickBuf = new Uint32Array([0]);
+	}
+	else
+	{
+		empty = false;
+		mapBuf = frame.mapBuffer;
+		brickBuf = frame.brickBuffer;
+	}
+
 	//extract size from metadata:
 	//-----------------
 	let metadata = videoDecoder.get_metadata()
@@ -318,24 +329,26 @@ function get_video_frame_bufs(inst, videoDecoder, frame)
 	//-----------------
 	let mapBufGPU = inst.device.createBuffer({
 		label: 'voxel map buf',
-		size: frame.mapBuffer.length * Uint32Array.BYTES_PER_ELEMENT,
+		size: mapBuf.length * Uint32Array.BYTES_PER_ELEMENT,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
 	});
-	inst.device.queue.writeBuffer(mapBufGPU, 0, frame.mapBuffer);
+	inst.device.queue.writeBuffer(mapBufGPU, 0, mapBuf);
 
 	let brickBufGPU = inst.device.createBuffer({
 		label: 'voxel brick buf',
-		size: frame.brickBuffer.length * Uint32Array.BYTES_PER_ELEMENT,
+		size: brickBuf.length * Uint32Array.BYTES_PER_ELEMENT,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
 	});
-	inst.device.queue.writeBuffer(brickBufGPU, 0, frame.brickBuffer);
+	inst.device.queue.writeBuffer(brickBufGPU, 0, brickBuf);
 
 	//cleanup + return:
 	//-----------------
-	videoDecoder.free_frame(frame);
+	if(frame != undefined)
+		videoDecoder.free_frame(frame);
 
 	return {
 		volumeSize: size,
+		empty: empty,
 		mapBuf : mapBufGPU,
 		brickBuf : brickBufGPU
 	};
@@ -554,17 +567,17 @@ class SPLVPlayer extends HTMLElement
 		switch(name)
 		{
 		case 'bounding-box':
-			if(!this.mainPromise)
+			if(this.state == undefined)
 				return;
 
-			set_bounding_box(this.mainPromise, newValue);
+			set_bounding_box(this.state, newValue);
 			break;
 		case 'top-color':
 		case 'bot-color':
-			if(!this.mainPromise)
+			if(this.state == undefined)
 				return;
 
-			set_color(this.mainPromise, name == 'top-color', newValue);
+			set_color(this.state, name == 'top-color', newValue);
 			break;
 		case 'video-controls':
 			this.set_video_controls(newValue);
@@ -574,10 +587,12 @@ class SPLVPlayer extends HTMLElement
 		}
 	}
 
-	async get_metadata()
+	get_metadata()
 	{
-		//TODO: what if this.mainPromise hasnt been set yet?
-		return get_video_metadata(await this.mainPromise);
+		if(this.state == undefined)
+			return undefined;
+
+		return get_video_metadata(this.state);
 	}
 
 	set_video_controls(value)
@@ -763,8 +778,17 @@ class SPLVPlayer extends HTMLElement
 			botColor: botColor
 		};
 
-		this.mainPromise = main(this.shadowRoot, attributes)
-			.catch((error) => alert(`FATAL ERROR: ${error.message}`));
+		main(this.shadowRoot, attributes)
+			.catch((error) => alert(`FATAL ERROR: ${error.message}`))
+			.then((state) => {
+				this.state = state;
+
+				this.dispatchEvent(new CustomEvent('video-loaded', {
+					bubbles: true,
+					composed: true,
+					detail: {}
+				}));
+			});
 	}
 }
 
