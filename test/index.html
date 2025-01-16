@@ -19,7 +19,7 @@
 
 		<script type="module">
 			const spatialComponent = document.querySelector('splv-player');
-			spatialComponent.addEventListener('video-loaded', (e) => {
+			spatialComponent.addEventListener('spatial-loaded', (e) => {
 				const metadata = spatialComponent.get_metadata();
 				console.log("video loaded with metadata:");
 				console.log(metadata);

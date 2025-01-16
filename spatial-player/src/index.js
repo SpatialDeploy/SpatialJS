@@ -783,7 +783,7 @@ class SPLVPlayer extends HTMLElement
 			.then((state) => {
 				this.state = state;
 
-				this.dispatchEvent(new CustomEvent('video-loaded', {
+				this.dispatchEvent(new CustomEvent('spatial-loaded', {
 					bubbles: true,
 					composed: true,
 					detail: {}
