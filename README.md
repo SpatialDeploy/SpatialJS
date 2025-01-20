@@ -51,6 +51,15 @@ spatialComponent.addEventListener('spatial-loaded', (e) => {
 });
 ```
 
+If you wish to set the currently playing spatial programatically, you can use the `set_spatial(spatial)` function:
+```js
+const spatialComponent = document.querySelector('splv-player');
+
+const response = await fetch("my_spatial.splv");
+const spatial = await response.arrayBuffer();
+spatialComponent.set_spatial(spatial);
+```
+
 ## React
 ```js
 import React, { useEffect } from 'react';

@@ -7,6 +7,7 @@ import {
 	init_raytracer, 
 	render_raytracer, 
 	resize_raytracer,
+	BRICK_SIZE
 } from "./raytracer.js";
 
 import {vec3, mat4} from './math.js';
@@ -46,55 +47,37 @@ async function main(root, attributes)
 
 	//populate state object:
 	//-----------------
-	var videoDecoder; //NOTE: need to call videoDecoder.delete() to avoid memory leak!!!!!
-	try
-	{
-		let video = await fetch_video_file(attributes.videoPath);
-
-		let videoLen = video.byteLength;
-		let videoPtr = DecoderModule._malloc(videoLen); //NOTE: need to call DecoderModuke._free() to avoid memory leak!!!
-		let videoHeap = new Uint8Array(DecoderModule.HEAPU8.buffer, videoPtr, videoLen);
-		videoHeap.set(new Uint8Array(video));
-
-		videoDecoder = new DecoderModule.SPLVDecoder(videoPtr, videoLen);
-	}
-	catch(e)
-	{
-		throw Error(`failed to instantiate video decoder with error \"${e.message}\"`);
-	}
-
-	let camera = camera_init();
-
+	const cameraState = camera_init();
+	const raytraceState = await init_raytracer(canvas, canvas.width, canvas.height);
+	
 	let state = {
-		videoDecoder: videoDecoder,
-		videoScrubber: videoScrubber,
-		lastTime: 0,
-		videoTime: 0,
-		curFrame: -1,
-		playing: true,
-		scrubbing: false,
-		camera: camera,
+		spatialModule: DecoderModule,
+		spatialState: null,
+
+		raytraceState: raytraceState,
+		cameraState: cameraState,
 		renderParams: {
 			showBoundingBox: attributes.showBoundingBox,
 			topColor: attributes.topColor,
 			botColor: attributes.botColor
-		}
+		},
+		videoFrameBufs: get_video_frame_bufs(raytraceState.inst, null, null),
+		
+		videoScrubber: videoScrubber,
+		playing: true,
+		scrubbing: false,
+		lastTime: 0
 	};
 
-	//initialize raytracer:
+	//load initial spatial:
 	//-----------------
-	const raytraceState = await init_raytracer(canvas, canvas.width, canvas.height);
+	if(attributes.video != null)
+		set_spatial(state, attributes.video);
 
 	//begin rendering:
 	//-----------------
-	state.videoDecoder.start_decoding_frame(0);
-	state.decodingFrame = 0;
-
-	state.videoFrameBufs = get_video_frame_bufs(raytraceState.inst, state.videoDecoder, undefined);
-	state.curFrame = -1;
-
 	requestAnimationFrame((timestamp) => {
-		render(state, raytraceState, timestamp);
+		render(state, timestamp);
 	});
 
 	//set up canvas resize observer:
@@ -117,35 +100,35 @@ async function main(root, attributes)
 	observer.observe(canvas);
 
 	//set up observers for camera controls:
-	//-----------------    
+	//-----------------
 	canvas.addEventListener('mousedown', (event) => {
-		camera_mouse_down(state.camera, event);
+		camera_mouse_down(state.cameraState, event);
 	});
 	
 	window.addEventListener('mousemove', (event) => {		
-		camera_mouse_moved(state.camera, event);
+		camera_mouse_moved(state.cameraState, event);
 	});
 	
 	window.addEventListener('mouseup', (event) => {		
-		camera_mouse_up(state.camera, event);
+		camera_mouse_up(state.cameraState, event);
 	});
 
 	canvas.addEventListener('wheel', (event) => {		
-		camera_scrolled(state.camera, event.deltaY);
+		camera_scrolled(state.cameraState, event.deltaY);
 		event.preventDefault();
 	});
 
 	canvas.addEventListener('touchstart', (event) => {
-		camera_touch_start(state.camera, event);
+		camera_touch_start(state.cameraState, event);
 	});
 	
 	window.addEventListener('touchmove', (event) => {
-		camera_touch_moved(state.camera, event);
+		camera_touch_moved(state.cameraState, event);
 		event.preventDefault();
 	}, { passive: false });
 	
 	window.addEventListener('touchend', (event) => {
-		camera_touch_end(state.camera, event);
+		camera_touch_end(state.cameraState, event);
 	});
 
 	//set up observers for video controls:
@@ -183,9 +166,9 @@ async function main(root, attributes)
 
 //-------------------------//
 
-function get_video_metadata(state)
+function get_spatial_metadata(state)
 {
-	return state.videoDecoder.get_metadata();
+	return state.spatialState?.decoder.get_metadata();
 }
 
 function set_bounding_box(state, value)
@@ -216,20 +199,77 @@ function set_color(state, top, value)
 		state.renderParams.botColor = color;
 }
 
+function set_spatial(state, video)
+{
+	//free old resources:
+	//-----------------
+	if(state.spatialState != null)
+	{
+		const spatialState = state.spatialState;
+		state.spatialState = null;
+
+		spatialState.decoder.delete();
+		state.spatialModule._free(spatialState.spatialPtr);
+	}
+
+	//set gpu buffers to empty:
+	//-----------------
+	state.videoFrameBufs = get_video_frame_bufs(state.raytraceState.inst, null, null);
+
+	//allocate memory + create decoder:
+	//-----------------
+	var decoder = null;
+	var spatialPtr = null;
+	try
+	{
+		let videoLen = video.byteLength;
+
+		spatialPtr = state.spatialModule._malloc(videoLen);
+		let videoHeap = new Uint8Array(state.spatialModule.HEAPU8.buffer, spatialPtr, videoLen);
+		videoHeap.set(new Uint8Array(video));
+
+		decoder = new state.spatialModule.SPLVDecoder(spatialPtr, videoLen);
+	}
+	catch(e)
+	{
+		throw Error(`failed to instantiate video decoder with error \"${e.message}\"`);
+	}
+
+	//start decoding next frame:
+	//-----------------
+	decoder.start_decoding_frame(0);
+
+	//set new spatial state + reset video time:
+	//-----------------
+	const spatialState = {
+		decoder: decoder,
+		spatialPtr: spatialPtr,
+		decodingFrame: 0,
+		curFrame: -1
+	};
+
+	state.spatialState = spatialState;
+	state.videoTime = 0;
+}
+
 //-------------------------//
 
-async function render(state, raytraceState, timestamp) 
+async function render(state, timestamp) 
 {
 	//update timing:
 	//-----------------
 	if(state.lastTime == 0)
 		state.lastTime = timestamp;
 
-	let metadata = state.videoDecoder.get_metadata()
+	let metadata = state.spatialState?.decoder.get_metadata() || {
+		framerate: 1,
+		framecount: 1,
+		duration: 1
+	};
 
 	let dt = timestamp - state.lastTime;
 	state.lastTime = timestamp;
-	if(state.playing && !state.scrubbing)
+	if(state.playing && !state.scrubbing && state.spatialState != null)
 		state.videoTime += dt;
 
 	//update video scrubber position:
@@ -245,14 +285,15 @@ async function render(state, raytraceState, timestamp)
 
 	//get new frame buffer, if it exists:
 	//-----------------
-	if(state.decodingFrame != undefined)
+	if(state.spatialState != null)
 	{
-		const frame = state.videoDecoder.try_get_decoded_frame();
+		const frame = state.spatialState.decoder.try_get_decoded_frame();
 		if(frame.decoded)
 		{
-			state.videoFrameBufs = get_video_frame_bufs(raytraceState.inst, state.videoDecoder, frame);
-			state.curFrame = state.decodingFrame;
-			state.decodingFrame = undefined;
+			state.videoFrameBufs = get_video_frame_bufs(state.raytraceState.inst, state.spatialState.decoder, frame);
+
+			state.spatialState.curFrame = state.spatialState.decodingFrame;
+			state.spatialState.decodingFrame = null;
 		}
 	}
 
@@ -261,7 +302,7 @@ async function render(state, raytraceState, timestamp)
 	let nextFrame = Math.floor((state.videoTime / 1000) * metadata.framerate);
 	nextFrame = nextFrame % metadata.framecount;
 
-	if(state.curFrame != nextFrame && state.decodingFrame == undefined)
+	if(state.curFrame != nextFrame && state.spatialState != null && state.spatialState.decodingFrame == null)
 	{
 		//print any dropped frames (for testing)
 		/*var droppedFrames = [];
@@ -274,18 +315,18 @@ async function render(state, raytraceState, timestamp)
 			console.warn("Dropped frames " + droppedFrames);*/
 
 		//start decoding next frame (runs in background thread)
-		state.videoDecoder.start_decoding_frame(nextFrame);
-		state.decodingFrame = nextFrame;
+		state.spatialState.decoder.start_decoding_frame(nextFrame);
+		state.spatialState.decodingFrame = nextFrame;
 	}
 
 	//render:
 	//-----------------
-	const aspectRatio = raytraceState.width / raytraceState.height;
-	const view = camera_get_view(state.camera);
+	const aspectRatio = state.raytraceState.width / state.raytraceState.height;
+	const view = camera_get_view(state.cameraState);
 	const proj = mat4.perspective(1.4, aspectRatio, 0.1, 100.0);
 
 	render_raytracer(
-		raytraceState, 
+		state.raytraceState, 
 		state.videoFrameBufs, 
 		view, proj, 
 		state.renderParams, 
@@ -295,7 +336,7 @@ async function render(state, raytraceState, timestamp)
 	//request animation frame:
 	//-----------------
 	requestAnimationFrame((timestamp) => {
-		render(state, raytraceState, timestamp)
+		render(state, timestamp)
 	});
 }
 
@@ -309,7 +350,7 @@ function get_video_frame_bufs(inst, videoDecoder, frame)
 	var empty;
 	var mapBuf;
 	var brickBuf;
-	if(frame == undefined || frame.mapBuffer.length == 0 || frame.brickBuffer.length == 0)
+	if(frame == null || frame.mapBuffer.length == 0 || frame.brickBuffer.length == 0)
 	{
 		empty = true;
 		mapBuf = new Uint32Array([0]); //dummy buffers so webgpu doesnt yell at us
@@ -324,7 +365,11 @@ function get_video_frame_bufs(inst, videoDecoder, frame)
 
 	//extract size from metadata:
 	//-----------------
-	let metadata = videoDecoder.get_metadata()
+	let metadata = videoDecoder?.get_metadata() || {
+		width: BRICK_SIZE,
+		height: BRICK_SIZE,
+		depth: BRICK_SIZE
+	};
 	let size = {
 		width: metadata.width,
 		height: metadata.height, //need to swap dimensions around, format array is flattened differently
@@ -349,7 +394,7 @@ function get_video_frame_bufs(inst, videoDecoder, frame)
 
 	//cleanup + return:
 	//-----------------
-	if(frame != undefined)
+	if(frame != null && videoDecoder != null)
 		videoDecoder.free_frame(frame);
 
 	return {
@@ -380,7 +425,9 @@ function video_scrubber_moved(state, videoScrubber)
 {
 	const progress = videoScrubber.value / 100.0;
 
-	let metadata = state.videoDecoder.get_metadata()
+	let metadata = state.spatialState?.decoder.get_metadata() || {
+		duration: 1
+	};
 	state.videoTime = metadata.duration * progress * 1000.0; //milliseconds
 
 	videoScrubber.style.setProperty('--progress-width', `${videoScrubber.value}%`)
@@ -548,6 +595,25 @@ async function fetch_video_file(url)
 
 class SPLVPlayer extends HTMLElement 
 {
+	get_metadata()
+	{
+		if(this.state == null)
+			return null;
+
+		return get_spatial_metadata(this.state);
+	}
+
+	set_spatial(spatial)
+	{
+		if(this.state == null)
+			throw "component not yet initialized";
+		
+		set_spatial(this.state, spatial);
+		this._dispatch_spatial_load_event();
+	}
+
+	//-------------------------//
+
 	constructor() 
 	{
 		super();
@@ -556,7 +622,6 @@ class SPLVPlayer extends HTMLElement
 
 	static get observedAttributes()
 	{
-		//TODO: handle change in src
 		return ['video-controls', 'bounding-box', 'top-color', 'bot-color'];
 	}
 
@@ -573,94 +638,29 @@ class SPLVPlayer extends HTMLElement
 		switch(name)
 		{
 		case 'bounding-box':
-			if(this.state == undefined)
+			if(this.state == null)
 				return;
 
 			set_bounding_box(this.state, newValue);
 			break;
 		case 'top-color':
 		case 'bot-color':
-			if(this.state == undefined)
+			if(this.state == null)
 				return;
 
 			set_color(this.state, name == 'top-color', newValue);
 			break;
 		case 'video-controls':
-			this.set_video_controls(newValue);
+			this._set_video_controls(newValue);
 			break;
 		default:
 			console.error('not yet implemented: ' + name);
 		}
 	}
 
-	get_metadata()
-	{
-		if(this.state == undefined)
-			return undefined;
+	//-------------------------//
 
-		return get_video_metadata(this.state);
-	}
-
-	set_video_controls(value)
-	{
-		if(!this.shadowRoot)
-			return;
-
-		value = value || 'show';
-	
-		//get video controls:
-		//-----------------
-		const container = this.shadowRoot.querySelector('#video_container');
-		if(!container)
-		{
-			console.warn('video container element was not found!');
-			return;
-		}
-
-		const controls = this.shadowRoot.querySelector('#video_controls');
-		if(!controls)
-		{
-			console.warn('video controls element was not found!');
-			return;
-		}
-	
-		//remove any existing event listeners:
-		//-----------------
-		container.removeEventListener('mouseenter', this._show_video_controls);
-		container.removeEventListener('mouseleave', this._hide_video_controls);
-		
-		//set new style + event listeners:
-		//-----------------
-		switch (value) 
-		{
-			case 'show':
-				controls.style.display = 'flex';
-				controls.style.opacity = '1';
-				break;
-			case 'hide':
-				controls.style.display = 'none';
-				break;
-			case 'hover':
-				controls.style.display = 'flex';
-				controls.style.opacity = '0';
-				controls.style.transition = 'opacity 0.3s ease';
-				
-                this._show_video_controls = () => controls.style.opacity = '1';
-                this._hide_video_controls = () => controls.style.opacity = '0';
-
-				const container = this.shadowRoot.querySelector('#video_container');
-				container.addEventListener('mouseenter', this._show_video_controls);
-				container.addEventListener('mouseleave', this._hide_video_controls);
-				break;
-			default:
-				console.warn('invalid video-controls value. Valid options are: "show", "hide", "hover"');
-				controls.style.display = 'flex';
-				controls.style.opacity = '1';
-				break;
-		}
-	}
-
-	render() 
+	async render() 
 	{
 		this.shadowRoot.innerHTML = `
 			<style>
@@ -750,10 +750,10 @@ class SPLVPlayer extends HTMLElement
 		//get attributes:
 		//-----------------
 		const src = this.getAttribute('src');
-		if(src == null)
+		var video = null;
+		if(src != null)
 		{
-			alert('FATAL ERROR: no source video specified');
-			return;
+			video = await fetch_video_file(src);
 		}
 
 		const boundingBox = this.getAttribute('bounding-box');
@@ -773,12 +773,12 @@ class SPLVPlayer extends HTMLElement
 		const botColor = botColorStr.split(' ').map(Number).map((x) => x / 255.0);
 
         const videoControls = this.getAttribute('video-controls') || 'show';
-        this.set_video_controls(videoControls);
+        this._set_video_controls(videoControls);
 
 		//start player:
 		//-----------------
 		const attributes = {
-			videoPath: src,
+			video: video,
 			showBoundingBox: showBoundingBox,
 			topColor: topColor,
 			botColor: botColor
@@ -788,13 +788,78 @@ class SPLVPlayer extends HTMLElement
 			.catch((error) => alert(`FATAL ERROR: ${error.message}`))
 			.then((state) => {
 				this.state = state;
-
-				this.dispatchEvent(new CustomEvent('spatial-loaded', {
-					bubbles: true,
-					composed: true,
-					detail: {}
-				}));
+				this._dispatch_spatial_load_event();
 			});
+	}
+
+	//-------------------------//
+
+	_set_video_controls(value)
+	{
+		if(!this.shadowRoot)
+			return;
+
+		value = value || 'show';
+	
+		//get video controls:
+		//-----------------
+		const container = this.shadowRoot.querySelector('#video_container');
+		if(!container)
+		{
+			console.warn('video container element was not found!');
+			return;
+		}
+
+		const controls = this.shadowRoot.querySelector('#video_controls');
+		if(!controls)
+		{
+			console.warn('video controls element was not found!');
+			return;
+		}
+	
+		//remove any existing event listeners:
+		//-----------------
+		container.removeEventListener('mouseenter', this._show_video_controls);
+		container.removeEventListener('mouseleave', this._hide_video_controls);
+		
+		//set new style + event listeners:
+		//-----------------
+		switch (value) 
+		{
+			case 'show':
+				controls.style.display = 'flex';
+				controls.style.opacity = '1';
+				break;
+			case 'hide':
+				controls.style.display = 'none';
+				break;
+			case 'hover':
+				controls.style.display = 'flex';
+				controls.style.opacity = '0';
+				controls.style.transition = 'opacity 0.3s ease';
+				
+                this._show_video_controls = () => controls.style.opacity = '1';
+                this._hide_video_controls = () => controls.style.opacity = '0';
+
+				const container = this.shadowRoot.querySelector('#video_container');
+				container.addEventListener('mouseenter', this._show_video_controls);
+				container.addEventListener('mouseleave', this._hide_video_controls);
+				break;
+			default:
+				console.warn('invalid video-controls value. Valid options are: "show", "hide", "hover"');
+				controls.style.display = 'flex';
+				controls.style.opacity = '1';
+				break;
+		}
+	}
+
+	_dispatch_spatial_load_event()
+	{
+		this.dispatchEvent(new CustomEvent('spatial-loaded', {
+			bubbles: true,
+			composed: true,
+			detail: {}
+		}));
 	}
 }
 

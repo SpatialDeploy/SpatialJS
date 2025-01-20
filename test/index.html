@@ -25,7 +25,18 @@
 				console.log(metadata);
 			});
 
+			await new Promise(r => setTimeout(r, 5000));
+
+			const response = await fetch("videos/sequence32.splv");
+			const newVideo = await response.arrayBuffer();
+			spatialComponent.set_spatial(newVideo);
+
 			await new Promise(r => setTimeout(r, 3000));
+
+			const response2 = await fetch("videos/deer.splv");
+			const newVideo2 = await response2.arrayBuffer();
+			spatialComponent.set_spatial(newVideo2);
+
 			spatialComponent.setAttribute('video-controls', 'show');
 			spatialComponent.setAttribute('bounding-box', 'hide');
 			spatialComponent.setAttribute('top-color', '255 0 0 255');

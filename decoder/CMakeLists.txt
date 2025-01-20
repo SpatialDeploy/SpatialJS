@@ -16,13 +16,15 @@ set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS
      -s MODULARIZE=1 \
      -s EXPORT_ES6=1 \
      -s EXPORT_NAME=SPLDecoder \
-     -s EXPORTED_FUNCTIONS=['_malloc'] \
+     -s EXPORTED_FUNCTIONS=\"['_malloc', '_free']\" \
      -s NO_DISABLE_EXCEPTION_CATCHING \
      -s ALLOW_MEMORY_GROWTH \
      -pthread \
-     -s PTHREAD_POOL_SIZE=1 \
+     -s PTHREAD_POOL_SIZE=2 \
      --bind"
 )
+
+# TODO: is thread pool size of 2 sufficient?
 
 # add include directories and libraries
 include_directories("include/")

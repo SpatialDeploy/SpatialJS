@@ -8,10 +8,10 @@ import { RAYTRACER_SHADER_SRC, QUAD_SHADER_SRC } from './shaders.js';
 
 //-------------------------//
 
+export const BRICK_SIZE = 8;
+
 const WORKGROUP_SIZE_X = 8;
 const WORKGROUP_SIZE_Y = 8;
-
-const BRICK_SIZE = 8;
 
 const BYTES_PER_ROW_ALIGNMENT = 256;
 

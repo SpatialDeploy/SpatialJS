@@ -77,7 +77,7 @@ SPLVDecoder::SPLVDecoder(intptr_t videoBuf, uint32_t videoBufLen)
 
 SPLVDecoder::~SPLVDecoder()
 {
-
+	join_decoding_thread(true);
 }
 
 SPLVMetadata SPLVDecoder::get_metadata()
