@@ -4,17 +4,13 @@
 #include "quickcompress.h"
 #include "morton_lut.hpp"
 
-#include <pthread.h>
-
 //-------------------------//
 
-SPLVDecoder::SPLVDecoder(emscripten::val videoBuf)
+SPLVDecoder::SPLVDecoder(intptr_t videoBuf, uint32_t videoBufLen)
 {
 	//create stream from input buffer:
 	//-----------------	
-	emscripten::val compressedBufferMemoryView = videoBuf.call<emscripten::val>("slice");
-	m_compressedBuffer = emscripten::convertJSArrayToNumberVector<uint8_t>(compressedBufferMemoryView);
-	m_compressedVideo = new Uint8VectorIStream(m_compressedBuffer);
+	m_compressedVideo = new Uint8PtrIStream((uint8_t*)videoBuf, videoBufLen);
 
 	//read metadata:
 	//-----------------
@@ -128,7 +124,7 @@ SPLVFrame SPLVDecoder::decode_frame()
 	if(qc_decompress(*m_compressedVideo, decompressedStream) != QC_SUCCESS)
 		throw std::runtime_error("error decompressing frame!");
 
-	Uint8VectorIStream decompressedFrame(decompressedBuf);
+	Uint8PtrIStream decompressedFrame(decompressedBuf.data(), (uint32_t)decompressedBuf.size());
 
 	//read total number of bricks:
 	//-----------------	
@@ -307,7 +303,7 @@ EMSCRIPTEN_BINDINGS(splv_decoder) {
 		;
 
 	emscripten::class_<SPLVDecoder>("SPLVDecoder")
-		.constructor<emscripten::val>()
+		.constructor<intptr_t, uint32_t>()
 		.function("get_metadata", &SPLVDecoder::get_metadata)
 		.function("start_decoding_frame", &SPLVDecoder::start_decoding_frame)
 		.function("try_get_decoded_frame", &SPLVDecoder::try_get_decoded_frame)

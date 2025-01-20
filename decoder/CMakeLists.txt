@@ -16,6 +16,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS
      -s MODULARIZE=1 \
      -s EXPORT_ES6=1 \
      -s EXPORT_NAME=SPLDecoder \
+     -s EXPORTED_FUNCTIONS=['_malloc'] \
      -s NO_DISABLE_EXCEPTION_CATCHING \
      -s ALLOW_MEMORY_GROWTH \
      -pthread \

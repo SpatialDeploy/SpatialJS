@@ -7,8 +7,9 @@
 #define SPLV_DECODER_H
 
 #include <string>
-#include "uint8_vector_stream.hpp"
 #include <emscripten/bind.h>
+#include <pthread.h>
+#include "uint8_stream.hpp"
 
 //-------------------------//
 
@@ -66,7 +67,7 @@ private:
 class SPLVDecoder
 {
 public:
-	SPLVDecoder(emscripten::val videoBuf);
+	SPLVDecoder(intptr_t videoBuf, uint32_t videoBufLen);
 	~SPLVDecoder();
 
 	SPLVMetadata get_metadata();
@@ -77,8 +78,7 @@ public:
 	void free_frame(const SPLVFrameEmscripten& frame);
 
 private:
-	std::vector<uint8_t> m_compressedBuffer;
-	Uint8VectorIStream* m_compressedVideo;
+	Uint8PtrIStream* m_compressedVideo;
 
 	SPLVMetadata m_metadata;
 	uint64_t* m_frameTable;

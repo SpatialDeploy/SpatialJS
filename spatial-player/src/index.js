@@ -50,7 +50,13 @@ async function main(root, attributes)
 	try
 	{
 		let video = await fetch_video_file(attributes.videoPath);
-		videoDecoder = new DecoderModule.SPLVDecoder(new Uint8Array(video));
+
+		let videoLen = video.byteLength;
+		let videoPtr = DecoderModule._malloc(videoLen); //NOTE: need to call DecoderModuke._free() to avoid memory leak!!!
+		let videoHeap = new Uint8Array(DecoderModule.HEAPU8.buffer, videoPtr, videoLen);
+		videoHeap.set(new Uint8Array(video));
+
+		videoDecoder = new DecoderModule.SPLVDecoder(videoPtr, videoLen);
 	}
 	catch(e)
 	{
