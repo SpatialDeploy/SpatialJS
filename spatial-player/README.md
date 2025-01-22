@@ -38,7 +38,7 @@ You can specify which spatial you want to play with the `src` attribute. To defi
 ```
 This will make the web component available. The following attributes are available to customize the player:
 - `video-controls`: controls how when to display the play button and video scrubber. `"show"` forces them to always be visible, `"hide"` forces them to be hidden, and `"hover"` makes them only visible when the user's cursor is over the player. The default is `"show"`.
-- `bounding-box`: controls whether to display the bounding box of the spatial, useful for debugging. `"show"` shows it and `"hide"` hides it. The default is `"hide"`.
+- `bbox-width`: controls the width of the bounding box of the spatial, useful for debugging. It should be a number in the range `[0, 1]`, with `0` specifying no bounding box. `0` is the default.
 - `top-color` and `bot-color`: control the color of the background gradient of the spatial. The background color linearly interpolates between the two. They must be given in the form `"r g b a"`, where each component is an integer in the range `[0, 255]`. The default for each is `"0 0 0 0"`, making the background completely transparent.
 - `allow-pausing`: Can be either `"true"` or `"false"`. Controls whether the user is able to manually paue/play the spatial. The default is `"true"`.
 - `allow-scrubbing`: Can be either `"true"` or `"false"`. Controls whether the user is able to manually set the play position of the spatial. The default is `"true"`.
