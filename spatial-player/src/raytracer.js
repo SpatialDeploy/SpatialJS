@@ -100,10 +100,14 @@ export async function render_raytracer(state, videoFrameBufs, view, proj, render
 	let mapHeight = videoFrameBufs.volumeSize.height / BRICK_SIZE
 	let mapDepth = videoFrameBufs.volumeSize.depth / BRICK_SIZE
 	uniformBufUintData.set(
-		[mapWidth, mapHeight, mapDepth, renderParams.showBoundingBox ? 1 : 0],
+		[mapWidth, mapHeight, mapDepth],
 		invView.length + invProj.length
 	);
 
+	uniformBufFloatData.set(
+		[renderParams.boundingBoxWidth],
+		invView.length + invProj.length + 3
+	)
 	uniformBufFloatData.set(
 		renderParams.topColor,
 		invView.length + invProj.length + 4

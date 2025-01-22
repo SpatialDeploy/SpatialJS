@@ -57,7 +57,7 @@ async function main(root, attributes)
 		raytraceState: raytraceState,
 		cameraState: cameraState,
 		renderParams: {
-			showBoundingBox: attributes.showBoundingBox,
+			boundingBoxWidth: attributes.boundingBoxWidth,
 			topColor: attributes.topColor,
 			botColor: attributes.botColor
 		},
@@ -119,6 +119,10 @@ async function main(root, attributes)
 		camera_mouse_up(state.cameraState, event);
 	});
 
+	window.addEventListener('dblclick', (event) => {
+		camera_double_click(state.cameraState, event);
+	});
+
 	canvas.addEventListener('wheel', (event) => {		
 		camera_scrolled(state.cameraState, event.deltaY);
 		event.preventDefault();
@@ -145,7 +149,7 @@ async function main(root, attributes)
 	{
 		playButton.addEventListener('click', function() {
 			if(state.defaultBehavior.allowPausing !== false)
-				set_pause_play(state, !state.playing);
+				set_playing(state, !state.playing);
 		});
 	}
 
@@ -495,20 +499,27 @@ function camera_init()
 	const radiusMin = 1.5;
 	const radiusMax = 5.0;
 	const sens = 0.015;
-	const scrollSens = 0.001;
+	const panSens = 0.0025;
+	const scrollSens = 0.0025;
 
-	const initialRadius = (radiusMin + radiusMax) / 2.0;
+	const initialRadius = 0.75 * radiusMin + 0.25 * radiusMax;
 	const intialTheta = Math.PI / 4;
 	const initialPhi = Math.PI / 4;
 
 	const startX = 0;
 	const startY = 0;
-	const dragging = false;
+	const rotating = false;
+	const panning = false;
+
+	const targetX = 0.0;
+	const targetY = 0.0;
+	const targetZ = 0.0;
 
 	return {
 		radiusMin: radiusMin,
 		radiusMax: radiusMax,
 		sens: sens,
+		panSens: panSens,
 		scrollSens: scrollSens,
 		
 		radius: initialRadius,
@@ -517,45 +528,80 @@ function camera_init()
 
 		startX: startX,
 		startY: startY,
-		dragging: dragging
+		rotating: rotating,
+		panning: panning,
+
+		targetX: targetX,
+		targetY: targetY,
+		targetZ: targetZ
 	};
 }
 
 function camera_get_view(cam)
 {
-	const x = cam.radius * Math.sin(cam.theta) * Math.cos(cam.phi);
-	const y = cam.radius * Math.sin(cam.phi);
-	const z = cam.radius * Math.cos(cam.theta) * Math.cos(cam.phi);
+	const x = cam.targetX + cam.radius * Math.sin(cam.theta) * Math.cos(cam.phi);
+	const y = cam.targetY + cam.radius * Math.sin(cam.phi);
+	const z = cam.targetZ + cam.radius * Math.cos(cam.theta) * Math.cos(cam.phi);
   
-	return mat4.lookat(vec3.create(x, y, z), vec3.create(0.0, 0.0, 0.0), vec3.create(0.0, 1.0, 0.0));
+	return mat4.lookat(
+		vec3.create(x, y, z), 
+		vec3.create(cam.targetX, cam.targetY, cam.targetZ), 
+		vec3.create(0.0, 1.0, 0.0)
+	);
 }
 
 function camera_mouse_down(camera, event)
 {
+	if(event.button === 0)
+		camera.rotating = true;
+	else if(event.button === 1)
+		camera.panning = true;
+	else
+		return;
+
 	camera.startX = event.clientX;
 	camera.startY = event.clientY;
-	camera.dragging = true;
 }
 
 function camera_mouse_up(camera, event)
 {
-	camera.dragging = false;
+	camera.rotating = false;
+	camera.panning = false;
+}
+
+function camera_double_click(camera, event)
+{
+	camera.radius = (camera.radius + camera.radiusMin) / 2.0;
 }
 
 function camera_mouse_moved(camera, event)
 {
-	if(!camera.dragging)
-		return;
+	if(camera.rotating)
+	{
+		const deltaX = event.clientX - camera.startX;
+		const deltaY = event.clientY - camera.startY;
 
-	const deltaX = event.clientX - camera.startX;
-	const deltaY = event.clientY - camera.startY;
+		camera.theta -= deltaX * camera.sens;
+		camera.phi += deltaY * camera.sens;
 
-	camera.theta -= deltaX * camera.sens;
-	camera.phi += deltaY * camera.sens;
+		camera.phi = Math.max(camera.phi, -Math.PI / 2);
+		camera.phi = Math.min(camera.phi, Math.PI / 2);
+	}
+	else if(camera.panning)
+	{
+        const deltaX = event.clientX - camera.startX;
+        const deltaY = event.clientY - camera.startY;
 
-	camera.phi = Math.max(camera.phi, -Math.PI / 2);
-	camera.phi = Math.min(camera.phi, Math.PI / 2);
-	
+		const rightX =  Math.cos(camera.theta);
+		const rightZ = -Math.sin(camera.theta);
+		
+		const forwardX = -Math.sin(camera.theta) * Math.cos(camera.phi);
+		const forwardZ = -Math.cos(camera.theta) * Math.cos(camera.phi);
+		
+		camera.targetX -= (rightX * deltaX + forwardX * -deltaY) * camera.panSens * camera.radius;
+		camera.targetZ -= (rightZ * deltaX + forwardZ * -deltaY) * camera.panSens * camera.radius;
+	}
+
 	camera.startX = event.clientX;
 	camera.startY = event.clientY;
 }
@@ -878,15 +924,7 @@ class SPLVPlayer extends HTMLElement
 			video = await fetch_video_file(src);
 		}
 
-		const boundingBox = this.getAttribute('bounding-box');
-		var showBoundingBox = false;
-		if(boundingBox != null)
-		{
-			if(boundingBox == "show")
-				showBoundingBox = true;
-			else if(boundingBox != "hide")
-				alert('WARNING: invalid option for \"bounding-box\", must either be \"show\" or \"hide\"');
-		}
+		const boundingBoxWidth = Number(this.getAttribute('bbox-width') || '0');
 
 		const topColorStr = this.getAttribute('top-color') || '0 0 0 0';
 		const topColor = topColorStr.split(' ').map(Number).map((x) => x / 255.0);
@@ -898,7 +936,7 @@ class SPLVPlayer extends HTMLElement
 		//-----------------
 		const attributes = {
 			video: video,
-			showBoundingBox: showBoundingBox,
+			boundingBoxWidth: boundingBoxWidth,
 			topColor: topColor,
 			botColor: botColor
 		};

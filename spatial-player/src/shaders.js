@@ -15,7 +15,6 @@ export const RAYTRACER_SHADER_SRC = `
 
 	const EMPTY_BRICK = 0xFFFFFFFF;
 
-	const BOUNDING_BOX_WIDTH = 0.01;
 	const BOUNDING_BOX_COLOR = vec4f(0.0, 0.0, 0.0, 1.0);
 
 	//-------------------------//
@@ -26,7 +25,7 @@ export const RAYTRACER_SHADER_SRC = `
 		invProj : mat4x4f,
 		
 		mapSize : vec3u,
-		showBoundingBox : u32,
+		boundingBoxWidth : f32,
 
 		backroundColorTop : vec4f,
 		backroundColorBot : vec4f,
@@ -159,9 +158,9 @@ export const RAYTRACER_SHADER_SRC = `
 
 	fn hit_bounding_box_edge(rayPos : vec3f, rayDir : vec3f, distToBox : f32, boxSize : vec3f) -> bool
 	{
-		const ONE_MINUS_WIDTH = 1.0 - BOUNDING_BOX_WIDTH;
+		let oneMinusWidth = 1.0 - u_renderParams.boundingBoxWidth;
 
-		if(u_renderParams.showBoundingBox == 0 || distToBox < 0.0)
+		if(distToBox < 0.0)
 		{
 			return false;
 		}
@@ -169,9 +168,9 @@ export const RAYTRACER_SHADER_SRC = `
 		let hitPos = rayPos + rayDir * distToBox;
 		let normHitPos = abs(hitPos / boxSize);
 
-		return (normHitPos.x > ONE_MINUS_WIDTH && normHitPos.y > ONE_MINUS_WIDTH) ||
-			(normHitPos.y > ONE_MINUS_WIDTH && normHitPos.z > ONE_MINUS_WIDTH) ||
-			(normHitPos.z > ONE_MINUS_WIDTH && normHitPos.x > ONE_MINUS_WIDTH);
+		return (normHitPos.x > oneMinusWidth && normHitPos.y > oneMinusWidth) ||
+			(normHitPos.y > oneMinusWidth && normHitPos.z > oneMinusWidth) ||
+			(normHitPos.z > oneMinusWidth && normHitPos.x > oneMinusWidth);
 	}
 
 	//-------------------------//
