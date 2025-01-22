@@ -14,20 +14,48 @@
 		</script>
 
 		<div style="width: 100%; height: 100%; display: flex;">
-			<splv-player src="videos/illaoi.splv" bounding-box="show" top-color="0 255 0 255" bot-color="0 0 255 255" video-controls="hover"></splv-player>
+			<splv-player src="videos/sequence96.splv" bounding-box="show" top-color="0 255 0 255" bot-color="0 0 255 255" video-controls="hover"></splv-player>
 		</div>
 
 		<script type="module">
+			var metadata;
+
 			const spatialComponent = document.querySelector('splv-player');
 			spatialComponent.addEventListener('spatial-loaded', (e) => {
-				const metadata = spatialComponent.get_metadata();
+				metadata = spatialComponent.get_metadata();
 				console.log("video loaded with metadata:");
 				console.log(metadata);
 			});
 
-			await new Promise(r => setTimeout(r, 5000));
+			spatialComponent.set_callback_pause_play((v) => {
+				console.log("playing: " + v);
+			});
 
-			const response = await fetch("videos/sequence32.splv");
+			spatialComponent.set_callback_is_scrubbing((v) => {
+				console.log("is scrubbing: " + v);
+			});
+
+			spatialComponent.set_callback_scrubber_position((v) => {
+				console.log("scrubber position: " + v);
+			});
+
+			spatialComponent.set_callback_time_set((v) => {
+				console.log("time set to: " + v);
+			});
+
+			spatialComponent.set_callback_frame_decoded((f, t) => {
+				console.log("decoded frame " + f + " at time " + t);
+			});
+
+			spatialComponent.set_callback_render((t) => {
+				console.log("rendered at time " + t);
+			});
+
+			spatialComponent.set_callback_dropped_frames((d, t) => {
+				console.warn("dropped frames " + d + " at time " + t);
+			});
+
+			/*const response = await fetch("videos/sequence32.splv");
 			const newVideo = await response.arrayBuffer();
 			spatialComponent.set_spatial(newVideo);
 
@@ -40,7 +68,7 @@
 			spatialComponent.setAttribute('video-controls', 'show');
 			spatialComponent.setAttribute('bounding-box', 'hide');
 			spatialComponent.setAttribute('top-color', '255 0 0 255');
-			spatialComponent.setAttribute('bot-color', '0 255 0 255');
+			spatialComponent.setAttribute('bot-color', '0 255 0 255');*/
 		</script>
 	</body>
 </html>

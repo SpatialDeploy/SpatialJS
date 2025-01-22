@@ -40,6 +40,9 @@ This will make the web component available. The following attributes are availab
 - `video-controls`: controls how when to display the play button and video scrubber. `"show"` forces them to always be visible, `"hide"` forces them to be hidden, and `"hover"` makes them only visible when the user's cursor is over the player. The default is `"show"`.
 - `bounding-box`: controls whether to display the bounding box of the spatial, useful for debugging. `"show"` shows it and `"hide"` hides it. The default is `"hide"`.
 - `top-color` and `bot-color`: control the color of the background gradient of the spatial. The background color linearly interpolates between the two. They must be given in the form `"r g b a"`, where each component is an integer in the range `[0, 255]`. The default for each is `"0 0 0 0"`, making the background completely transparent.
+- `allow-pausing`: Can be either `"true"` or `"false"`. Controls whether the user is able to manually paue/play the spatial. The default is `"true"`.
+- `allow-scrubbing`: Can be either `"true"` or `"false"`. Controls whether the user is able to manually set the play position of the spatial. The default is `"true"`.
+- `update-scrubber-position`: Can be either `"true"` or `"false"`. Controls whether the visual position of the playhead is automatically updated. The default is `"true"`.
 
 If you wish to add some functionality when the spatial is loaded and begins playing, you can listen for the `spatial-loaded` event, which is dispatched as soon as the spatial is ready to play. You can also query the metadata of the spatial with the `get_metadata()` function:
 ```js
@@ -58,6 +61,45 @@ const spatialComponent = document.querySelector('splv-player');
 const response = await fetch("my_spatial.splv");
 const spatial = await response.arrayBuffer();
 spatialComponent.set_spatial(spatial);
+```
+
+If you wish to set properties of the currently playing spatial, such as the current time or whether it is paused, the following member functions are available:
+- `SPLVPlayer.set_playing(value: bool)`: controls whether the spatial is playing.
+- `SPLVPlayer.set_scrubbing(value: bool)`: same as `set_playing`, but doesn't update the visual pause/play button. Useful for if you want to implement a scrubber yourself.
+- `SPLVPlayer.set_scrubber_position(value: Number)`: sets the position of the visual playhead, does NOT affect the actual spatial. `value` must be in the range `[0, 100]`.
+- `SPLVPlayer.set_time(value: Number)`: sets the current time within the spatial to play from, updating the scrubber position if the `update-scrubber-position` attribute is `"true"`.
+
+You can also set callbacks at various important events in the playing of a spatial, here is an example of each of them:
+```js
+const spatialComponent = document.querySelector('splv-player');
+
+spatialComponent.set_callback_pause_play((v) => {
+    console.log("playing: " + v);
+});
+
+spatialComponent.set_callback_is_scrubbing((v) => {
+    console.log("is scrubbing: " + v);
+});
+
+spatialComponent.set_callback_scrubber_position((v) => {
+    console.log("scrubber position: " + v);
+});
+
+spatialComponent.set_callback_time_set((v) => {
+    console.log("time set to: " + v);
+});
+
+spatialComponent.set_callback_frame_decoded((f, t) => {
+    console.log("decoded frame " + f + " at time " + t);
+});
+
+spatialComponent.set_callback_render((t) => {
+    console.log("rendered at time " + t);
+});
+
+spatialComponent.set_callback_dropped_frames((d, t) => {
+    console.warn("dropped frames " + d + " at time " + t);
+});
 ```
 
 ## React

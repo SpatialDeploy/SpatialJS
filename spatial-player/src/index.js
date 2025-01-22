@@ -63,9 +63,15 @@ async function main(root, attributes)
 		},
 		videoFrameBufs: get_video_frame_bufs(raytraceState.inst, null, null),
 		
+		playButton: playButton,
 		videoScrubber: videoScrubber,
+		
+		callbacks: {},
+		defaultBehavior: {},
+
 		playing: true,
 		scrubbing: false,
+		checkDroppedFrames: true,
 		lastTime: 0
 	};
 
@@ -105,7 +111,7 @@ async function main(root, attributes)
 		camera_mouse_down(state.cameraState, event);
 	});
 	
-	window.addEventListener('mousemove', (event) => {		
+	window.addEventListener('mousemove', (event) => {
 		camera_mouse_moved(state.cameraState, event);
 	});
 	
@@ -138,7 +144,8 @@ async function main(root, attributes)
 	else
 	{
 		playButton.addEventListener('click', function() {
-			play_button_clicked(state, playButton);
+			if(state.defaultBehavior.allowPausing !== false)
+				set_pause_play(state, !state.playing);
 		});
 	}
 
@@ -147,15 +154,25 @@ async function main(root, attributes)
 	else
 	{
 		videoScrubber.addEventListener('input', function() {
-			video_scrubber_moved(state, videoScrubber);
+			if(state.defaultBehavior.allowScrubbing === false)
+				return;
+			
+			let metadata = state.spatialState?.decoder.get_metadata() || {
+				duration: 1
+			};
+			let progress = videoScrubber.value / 100.0;
+
+			set_time(state, metadata.duration * progress);
 		});
 
 		videoScrubber.addEventListener('mousedown', function() {
-			state.scrubbing = true;
+			if(state.defaultBehavior.allowScrubbing !== false)
+				set_scrubbing(state, true);
 		});
 
 		videoScrubber.addEventListener('mouseup', function() {
-			state.scrubbing = false;
+			if(state.defaultBehavior.allowScrubbing !== false)
+				set_scrubbing(state, false);
 		});
 	}
 
@@ -254,8 +271,68 @@ function set_spatial(state, video)
 
 //-------------------------//
 
+function set_playing(state, play)
+{
+	if(play) 
+	{
+		state.playButton.textContent = '⏸️';
+		state.playing = true;
+	}
+	else
+	{
+		state.playButton.textContent = '▶️';
+		state.playing = false;
+	} 
+
+	if(state.callbacks.pausePlay != null)
+		state.callbacks.pausePlay(state.playing);
+}
+
+function set_scrubbing(state, scrubbing)
+{
+	state.scrubbing = scrubbing;
+
+	if(state.callbacks.scrubbing != null)
+		state.callbacks.scrubbing(scrubbing);
+}
+
+function set_scrubber_position(state, position)
+{
+	state.videoScrubber.value = position;
+	state.videoScrubber.style.setProperty('--progress-width', `${position}%`);
+
+	if(state.callbacks.scrubberPosition != null)
+		state.callbacks.scrubberPosition(position);
+}
+
+function set_time(state, time)
+{
+	state.videoTime = time * 1000.0; //in ms
+	state.checkDroppedFrames = false;
+
+	if(state.defaultBehavior.updateScrubberPosisition !== false)
+	{
+		let metadata = state.spatialState?.decoder.get_metadata() || {
+			duration: 1
+		};
+	
+		const progress = (time / metadata.duration) * 100.0;
+		set_scrubber_position(state, progress);
+	}
+
+	if(state.callbacks.setTime != null)
+		state.callbacks.setTime(time);
+}
+
+//-------------------------//
+
 async function render(state, timestamp) 
 {
+	//call render callback:
+	//-----------------
+	if(state.callbacks.render != null)
+		state.callbacks.render(timestamp);
+
 	//update timing:
 	//-----------------
 	if(state.lastTime == 0)
@@ -274,7 +351,7 @@ async function render(state, timestamp)
 
 	//update video scrubber position:
 	//-----------------
-	if(!state.scrubbing && state.videoScrubber != null)
+	if(!state.scrubbing && state.videoScrubber != null && state.defaultBehavior.updateScrubberPosisition !== false)
 	{
 		var progress = ((state.videoTime / 1000) / metadata.duration) % 1.0;
 		progress *= 100.0;
@@ -285,11 +362,14 @@ async function render(state, timestamp)
 
 	//get new frame buffer, if it exists:
 	//-----------------
-	if(state.spatialState != null)
+	if(state.spatialState?.decodingFrame != null)
 	{
 		const frame = state.spatialState.decoder.try_get_decoded_frame();
 		if(frame.decoded)
 		{
+			if(state.callbacks.frameDecoded != null)
+				state.callbacks.frameDecoded(state.spatialState.decodingFrame, timestamp);
+
 			state.videoFrameBufs = get_video_frame_bufs(state.raytraceState.inst, state.spatialState.decoder, frame);
 
 			state.spatialState.curFrame = state.spatialState.decodingFrame;
@@ -302,17 +382,20 @@ async function render(state, timestamp)
 	let nextFrame = Math.floor((state.videoTime / 1000) * metadata.framerate);
 	nextFrame = nextFrame % metadata.framecount;
 
-	if(state.curFrame != nextFrame && state.spatialState != null && state.spatialState.decodingFrame == null)
+	if(state.spatialState != null && state.spatialState.curFrame != nextFrame && state.spatialState.decodingFrame == null)
 	{
-		//print any dropped frames (for testing)
-		/*var droppedFrames = [];
-		for(var i = (state.curFrame + 1) % metadata.framecount; i != nextFrame; i = (i + 1) % metadata.framecount)
-			droppedFrames.push(i);
-		
-		if(droppedFrames.length == 1)
-			console.warn("Dropped frame " + droppedFrames);
-		else if(droppedFrames.length > 1)
-			console.warn("Dropped frames " + droppedFrames);*/
+		//call droppedFrames callback
+		if(state.callbacks.droppedFrames != null && state.checkDroppedFrames)
+		{
+			var droppedFrames = [];
+			for(var i = (state.spatialState.curFrame + 1) % metadata.framecount; i != nextFrame; i = (i + 1) % metadata.framecount)
+				droppedFrames.push(i);
+			
+			if(droppedFrames.length > 0)
+				state.callbacks.droppedFrames(droppedFrames, timestamp);
+		}
+
+		state.checkDroppedFrames = true;
 
 		//start decoding next frame (runs in background thread)
 		state.spatialState.decoder.start_decoding_frame(nextFrame);
@@ -403,34 +486,6 @@ function get_video_frame_bufs(inst, videoDecoder, frame)
 		mapBuf : mapBufGPU,
 		brickBuf : brickBufGPU
 	};
-}
-
-//-------------------------//
-
-function play_button_clicked(state, playButton)
-{
-	if (state.playing) 
-	{
-		playButton.textContent = '▶️';
-		state.playing = false;
-	} 
-	else 
-	{
-		playButton.textContent = '⏸️';
-		state.playing = true;
-	}
-}
-
-function video_scrubber_moved(state, videoScrubber)
-{
-	const progress = videoScrubber.value / 100.0;
-
-	let metadata = state.spatialState?.decoder.get_metadata() || {
-		duration: 1
-	};
-	state.videoTime = metadata.duration * progress * 1000.0; //milliseconds
-
-	videoScrubber.style.setProperty('--progress-width', `${videoScrubber.value}%`)
 }
 
 //-------------------------//
@@ -605,11 +660,67 @@ class SPLVPlayer extends HTMLElement
 
 	set_spatial(spatial)
 	{
-		if(this.state == null)
-			throw "component not yet initialized";
-		
-		set_spatial(this.state, spatial);
-		this._dispatch_spatial_load_event();
+		this._defer_until_initialized(() => {
+			set_spatial(this.state, spatial);
+			this._dispatch_spatial_load_event();
+		})
+	}
+
+	set_playing(value)
+	{
+		this._defer_until_initialized(() => set_playing(this.state, value));
+	}
+	
+	set_scrubbing(value)
+	{
+		this._defer_until_initialized(() => set_scrubbing(this.state, value));
+	}
+	
+	set_scrubber_position(position)
+	{
+		this._defer_until_initialized(() => set_scrubber_position(this.state, position));
+	}
+	
+	set_time(time)
+	{
+		this._defer_until_initialized(() => set_time(this.state, time));
+	}
+
+	//-------------------------//
+
+	set_callback_pause_play(callback)
+	{
+		this._defer_until_initialized(() => this.state.callbacks.pausePlay = callback);
+	}
+
+	set_callback_is_scrubbing(callback)
+	{
+		this._defer_until_initialized(() => this.state.callbacks.scrubbing = callback);
+	}
+
+	set_callback_scrubber_position(callback)
+	{
+		this._defer_until_initialized(() => this.state.callbacks.scrubberPosition = callback);
+	}
+
+	set_callback_time_set(callback)
+	{
+		this._defer_until_initialized(() => this.state.callbacks.setTime = callback);
+	}
+
+	set_callback_render(callback)
+	{
+		this._defer_until_initialized(() => this.state.callbacks.render = callback);
+	}
+
+	set_callback_frame_decoded(callback)
+	{
+		this._defer_until_initialized(() => this.state.callbacks.frameDecoded = callback);
+	}
+
+	set_callback_dropped_frames(callback)
+	{
+		this._defer_until_initialized(() => this.state.callbacks.droppedFrames = callback);
 	}
 
 	//-------------------------//
@@ -622,7 +733,15 @@ class SPLVPlayer extends HTMLElement
 
 	static get observedAttributes()
 	{
-		return ['video-controls', 'bounding-box', 'top-color', 'bot-color'];
+		return [
+			'video-controls', 
+			'bounding-box', 
+			'top-color', 
+			'bot-color', 
+			'allow-pausing',
+			'allow-scrubbing',
+			'update-scrubber-position'
+		];
 	}
 
 	connectedCallback() 
@@ -638,17 +757,20 @@ class SPLVPlayer extends HTMLElement
 		switch(name)
 		{
 		case 'bounding-box':
-			if(this.state == null)
-				return;
-
-			set_bounding_box(this.state, newValue);
+			this._defer_until_initialized(() => set_bounding_box(this.state, newValue));
 			break;
 		case 'top-color':
 		case 'bot-color':
-			if(this.state == null)
-				return;
-
-			set_color(this.state, name == 'top-color', newValue);
+			this._defer_until_initialized(() => set_color(this.state, name == 'top-color', newValue));
+			break;
+		case 'allow-pausing':
+			this._defer_until_initialized(() => this.state.defaultBehavior.allowPausing = (newValue !== "false"));
+			break;
+		case 'allow-scrubbing':
+			this._defer_until_initialized(() => this.state.defaultBehavior.allowScrubbing = (newValue !== "false"));
+			break;
+		case 'update-scrubber-position':
+			this._defer_until_initialized(() => this.state.defaultBehavior.updateScrubberPosisition = (newValue !== "false"));
 			break;
 		case 'video-controls':
 			this._set_video_controls(newValue);
@@ -772,9 +894,6 @@ class SPLVPlayer extends HTMLElement
 		const botColorStr = this.getAttribute('bot-color') || '0 0 0 0';
 		const botColor = botColorStr.split(' ').map(Number).map((x) => x / 255.0);
 
-        const videoControls = this.getAttribute('video-controls') || 'show';
-        this._set_video_controls(videoControls);
-
 		//start player:
 		//-----------------
 		const attributes = {
@@ -788,6 +907,12 @@ class SPLVPlayer extends HTMLElement
 			.catch((error) => alert(`FATAL ERROR: ${error.message}`))
 			.then((state) => {
 				this.state = state;
+
+				this.dispatchEvent(new CustomEvent('_initialized', {
+					bubbles: false,
+					composed: false,
+					detail: {}
+				}));
 				this._dispatch_spatial_load_event();
 			});
 	}
@@ -851,6 +976,18 @@ class SPLVPlayer extends HTMLElement
 				controls.style.opacity = '1';
 				break;
 		}
+	}
+
+	_defer_until_initialized(func)
+	{
+		if(this.state == null)
+		{
+			this.addEventListener("_initialized", () => { 
+				func()
+			});
+		}
+		else
+			func()
 	}
 
 	_dispatch_spatial_load_event()
