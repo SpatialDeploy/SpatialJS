@@ -77,7 +77,11 @@ SPLVDecoder::SPLVDecoder(intptr_t videoBuf, uint32_t videoBufLen)
 
 SPLVDecoder::~SPLVDecoder()
 {
-	join_decoding_thread(true);
+	if(!m_decodingThreadData->active)
+		return;
+
+	pthread_join(m_decodingThreadData->thread, nullptr);
+	m_decodingThreadData->active = false;
 }
 
 SPLVMetadata SPLVDecoder::get_metadata()
@@ -104,7 +108,26 @@ void SPLVDecoder::start_decoding_frame(uint32_t idx)
 
 SPLVFrameEmscripten SPLVDecoder::try_get_decoded_frame()
 {
-	return join_decoding_thread(false);
+	//check if decoding finished:
+	//-----------------
+	if(!m_decodingThreadData->active)
+		throw std::runtime_error("no frame is being decoded");
+
+	int joinResult = pthread_tryjoin_np(m_decodingThreadData->thread, nullptr);
+	if(joinResult == EBUSY)
+		return SPLVFrameEmscripten();
+
+	m_decodingThreadData->active = false;
+
+	//create memory views:
+	//-----------------
+	emscripten::val mapBuf(emscripten::typed_memory_view(m_mapLen * sizeof(uint32_t), m_decodingThreadData->frame.data));
+
+	uint32_t brickBufSize = m_decodingThreadData->frame.numBricks * m_brickLen * sizeof(uint32_t);
+	uint32_t brickBufOffset = m_mapLen * sizeof(uint32_t);
+	emscripten::val brickBuf(emscripten::typed_memory_view(brickBufSize, m_decodingThreadData->frame.data + brickBufOffset));
+
+	return SPLVFrameEmscripten(mapBuf, brickBuf, m_decodingThreadData->frame.data);
 }
 
 void SPLVDecoder::free_frame(const SPLVFrameEmscripten& frame)
@@ -252,36 +275,6 @@ void* SPLVDecoder::start_decoding_thread(void* arg)
 	data->frame = data->decoder->decode_frame();
 
 	return nullptr;
-}
-
-SPLVFrameEmscripten SPLVDecoder::join_decoding_thread(bool wait)
-{
-	//check if decoding finished:
-	//-----------------
-	if(!m_decodingThreadData->active)
-		throw std::runtime_error("no frame is being decoded");
-
-	int joinResult;
-	if(wait)
-		joinResult = pthread_join(m_decodingThreadData->thread, nullptr);
-	else
-	{
-		int joinResult = pthread_tryjoin_np(m_decodingThreadData->thread, nullptr);
-		if(joinResult == EBUSY)
-			return SPLVFrameEmscripten();
-	}
-
-	m_decodingThreadData->active = false;
-
-	//create memory views:
-	//-----------------
-	emscripten::val mapBuf(emscripten::typed_memory_view(m_mapLen * sizeof(uint32_t), m_decodingThreadData->frame.data));
-
-	uint32_t brickBufSize = m_decodingThreadData->frame.numBricks * m_brickLen * sizeof(uint32_t);
-	uint32_t brickBufOffset = m_mapLen * sizeof(uint32_t);
-	emscripten::val brickBuf(emscripten::typed_memory_view(brickBufSize, m_decodingThreadData->frame.data + brickBufOffset));
-
-	return SPLVFrameEmscripten(mapBuf, brickBuf, m_decodingThreadData->frame.data);
 }
 
 //-------------------------//

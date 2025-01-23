@@ -109,7 +109,6 @@ private:
 	std::unique_ptr<DecodingThreadData> m_decodingThreadData;
 
 	static void* start_decoding_thread(void* arg);
-	SPLVFrameEmscripten join_decoding_thread(bool wait);
 };
 
 #endif //#ifndef SPLV_DECODER_H
