@@ -10,13 +10,7 @@
 #include <emscripten/bind.h>
 #include <pthread.h>
 #include "uint8_stream.hpp"
-
-//-------------------------//
-
-#define BRICK_SIZE 8
-#define EMPTY_BRICK UINT32_MAX
-
-#define NUM_COLOR_COMPONENTS 3
+#include "splv_frame.h"
 
 //-------------------------//
 
@@ -30,36 +24,40 @@ struct SPLVMetadata
 	float duration;
 };
 
-struct SPLVFrame
+typedef struct SPLVframeRef
 {
-	uint32_t numBricks;
-	uint8_t* data;
-};
+	SPLVframe frame;
+	uint32_t frameIdx;
+	int32_t refCount;
+} SPLVframeRef;
+
+//-------------------------//
 
 class SPLVFrameEmscripten
 {
 public:
-	SPLVFrameEmscripten(const emscripten::val& mapBuf, const emscripten::val& brickBuf, uint8_t* dataPtr) :
-		m_mapBuf(mapBuf), m_brickBuf(brickBuf), m_dataPtr(dataPtr) 
+	SPLVFrameEmscripten(const emscripten::val& mapBuf, const emscripten::val& brickBuf, SPLVframeRef* frame) :
+		m_mapBuf(mapBuf), m_brickBuf(brickBuf), m_rawFrame(frame)
 	{
 
 	}
 
 	SPLVFrameEmscripten() :
-		m_dataPtr(nullptr)
+		m_rawFrame(nullptr)
 	{
 
 	}
 
-	bool decoded() const { return m_dataPtr != nullptr; }
+	bool decoded() const { return m_rawFrame != nullptr; }
 	emscripten::val get_map_buf() const { return m_mapBuf; }
 	emscripten::val get_brick_buf() const { return m_brickBuf; }
-	uint8_t* get_data_ptr() const { return m_dataPtr; }
+	SPLVframeRef* get_raw_frame() const { return m_rawFrame; }
 
 private:
 	emscripten::val m_mapBuf = emscripten::val::undefined();
 	emscripten::val m_brickBuf = emscripten::val::undefined();
-	uint8_t* m_dataPtr;
+
+	SPLVframeRef* m_rawFrame;
 };
 
 //-------------------------//
@@ -70,12 +68,12 @@ public:
 	SPLVDecoder(intptr_t videoBuf, uint32_t videoBufLen);
 	~SPLVDecoder();
 
-	SPLVMetadata get_metadata();
-
 	void start_decoding_frame(uint32_t idx);
 	SPLVFrameEmscripten try_get_decoded_frame();
-
 	void free_frame(const SPLVFrameEmscripten& frame);
+
+	SPLVMetadata get_metadata();
+	uint32_t get_closest_decodable_frame_idx(uint32_t targetFrameIdx);
 
 private:
 	Uint8PtrIStream* m_compressedVideo;
@@ -83,16 +81,12 @@ private:
 	SPLVMetadata m_metadata;
 	uint64_t* m_frameTable;
 
-	//each of these is expressed in number of uint32_t's,
-	//since thats the data type expected by WebGPU
-	uint32_t m_mapLen;
-	uint32_t m_mapLenCompressed;
-	uint32_t m_brickBitmapLen;
-	uint32_t m_brickColorsLen;
-	uint32_t m_brickLen;
+	//scratch buffers for reading compressed map
+	uint64_t m_compressedMapLen;
+	uint32_t* m_compressedMap;
+	SPLVcoordinate* m_brickPositions;
 
-	SPLVFrame decode_frame();
-	void decode_brick_bitmap(std::basic_istream<char>& file, uint32_t* brick);
+	SPLVframeRef* m_lastFrame = nullptr;
 
 	//-------------------------//
 
@@ -100,15 +94,22 @@ private:
 	{
 		SPLVDecoder* decoder;
 
-		uint64_t framePtr;
-		SPLVFrame frame;
+		uint32_t frameIdx;
+		SPLVframeRef* decodedFrame;
 		
 		pthread_t thread;
 		bool active;
 	};
 	std::unique_ptr<DecodingThreadData> m_decodingThreadData;
 
+	SPLVframeRef* decode_frame(uint32_t frameIdx);
 	static void* start_decoding_thread(void* arg);
+
+	uint32_t get_prev_decodable_frame_idx(uint32_t targetFrameIdx);
+	uint32_t get_next_decodable_frame_idx(uint32_t targetFrameIdx);
+
+	void frame_ref_remove(SPLVframeRef* ref);
+	SPLVframeRef* frame_ref_add(SPLVframeRef* ref);
 };
 
 #endif //#ifndef SPLV_DECODER_H

@@ -311,15 +311,23 @@ function set_scrubber_position(state, position)
 
 function set_time(state, time)
 {
+	let metadata = state.spatialState?.decoder.get_metadata() || {
+		duration: 1
+	};
+
+	if(state.spatialState?.decoder != null)
+	{
+		let frame = Math.floor(time * metadata.framerate);
+		let closestDecodable = state.spatialState.decoder.get_closest_decodable_frame_idx(frame);
+
+		time = closestDecodable / metadata.framerate + 0.0001; //add epsilon to make sure we decode correct frame
+	}
+
 	state.videoTime = time * 1000.0; //in ms
 	state.checkDroppedFrames = false;
 
 	if(state.defaultBehavior.updateScrubberPosisition !== false)
-	{
-		let metadata = state.spatialState?.decoder.get_metadata() || {
-			duration: 1
-		};
-	
+	{	
 		const progress = (time / metadata.duration) * 100.0;
 		set_scrubber_position(state, progress);
 	}
@@ -388,6 +396,9 @@ async function render(state, timestamp)
 
 	if(state.spatialState != null && state.spatialState.curFrame != nextFrame && state.spatialState.decodingFrame == null)
 	{
+		//TODO: is this the best way to handle this?
+		nextFrame = state.spatialState.decoder.get_closest_decodable_frame_idx(nextFrame);
+
 		//call droppedFrames callback
 		if(state.callbacks.droppedFrames != null && state.checkDroppedFrames)
 		{
