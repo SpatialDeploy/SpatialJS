@@ -108,8 +108,8 @@ private:
 	uint32_t get_prev_decodable_frame_idx(uint32_t targetFrameIdx);
 	uint32_t get_next_decodable_frame_idx(uint32_t targetFrameIdx);
 
-	void frame_ref_remove(SPLVframeRef* ref);
-	SPLVframeRef* frame_ref_add(SPLVframeRef* ref);
+	static void frame_ref_remove(SPLVframeRef* ref);
+	static SPLVframeRef* frame_ref_add(SPLVframeRef* ref);
 };
 
 #endif //#ifndef SPLV_DECODER_H

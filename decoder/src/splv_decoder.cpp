@@ -113,7 +113,7 @@ SPLVDecoder::SPLVDecoder(intptr_t videoBuf, uint32_t videoBufLen)
 		throw std::runtime_error("");
 	}
 
-	m_brickPositions = (SPLVcoordinate*)SPLV_MALLOC(SPLV_BRICK_LEN * sizeof(SPLVcoordinate));
+	m_brickPositions = (SPLVcoordinate*)SPLV_MALLOC(mapWidth * mapHeight * mapDepth * sizeof(SPLVcoordinate));
 	if(!m_brickPositions)
 	{
 		SPLV_LOG_ERROR("failed to allocate temp buf for brick positions");
@@ -221,7 +221,7 @@ SPLVFrameEmscripten SPLVDecoder::try_get_decoded_frame()
 	uint64_t bricksSize = decodedFrame.numBricks * sizeof(SPLVbrick);
 	emscripten::val brickBuf(emscripten::typed_memory_view(bricksSize, (uint8_t*)decodedFrame.bricks));
 
-	return SPLVFrameEmscripten(mapBuf, brickBuf, frame_ref_add(decodedFrameRef));
+	return SPLVFrameEmscripten(mapBuf, brickBuf, decodedFrameRef);
 }
 
 void SPLVDecoder::free_frame(const SPLVFrameEmscripten& frame)
@@ -336,6 +336,12 @@ SPLVframeRef* SPLVDecoder::decode_frame(uint32_t frameIdx)
 	//TODO: see if we can avoid this malloc every frame
 
 	SPLVframeRef* frameRef = (SPLVframeRef*)SPLV_MALLOC(sizeof(SPLVframeRef));
+	if(!frameRef)
+	{
+		SPLV_LOG_ERROR("failed to allocate frame ref");
+		throw std::runtime_error("");
+	}
+
 	frameRef->frame = decodedFrame;
 	frameRef->frameIdx = frameIdx;
 	frameRef->refCount = 0;
@@ -361,7 +367,7 @@ void* SPLVDecoder::start_decoding_thread(void* arg)
 		data->decoder->decode_frame(i);
 	}
 
-	data->decodedFrame = data->decoder->decode_frame(data->frameIdx);
+	data->decodedFrame = frame_ref_add(data->decoder->decode_frame(data->frameIdx));
 
 	/*auto end = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
