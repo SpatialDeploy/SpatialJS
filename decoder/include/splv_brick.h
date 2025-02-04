@@ -8,8 +8,8 @@
 
 #include "splv_error.h"
 #include "splv_global.h"
+#include "splv_buffer_reader.h"
 #include <stdint.h>
-#include <fstream> //TODO: c-style file IO
 
 //-------------------------------------------//
 
@@ -93,8 +93,8 @@ void splv_brick_clear(SPLVbrick* brick);
 typedef struct SPLVframe SPLVframe;
 
 /**
- * decodes a brick from an input stream into the given pointer
+ * decodes a brick from an input reader into the given pointer
  */
-SPLVerror splv_brick_decode(std::istream& in, SPLVbrick* out, uint32_t xMap, uint32_t yMap, uint32_t zMap, SPLVframe* lastFrame);
+SPLVerror splv_brick_decode(SPLVbufferReader* in, SPLVbrick* out, uint32_t xMap, uint32_t yMap, uint32_t zMap, SPLVframe* lastFrame);
 
 #endif //#ifndef SPLV_BRICK_H

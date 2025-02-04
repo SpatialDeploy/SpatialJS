@@ -3,6 +3,8 @@
 #include "splv_morton_lut.h"
 #include "splv_brick.h"
 #include "splv_log.h"
+#include "splv_buffer_reader.h"
+#include <iostream>
 
 #define SPLV_RC_IMPLEMENTATION
 #include "splv_range_coder.h"
@@ -40,7 +42,7 @@ typedef enum SPLVframeType
 
 SPLVDecoder::SPLVDecoder(intptr_t videoBuf, uint32_t videoBufLen)
 {
-	//create stream from input buffer:
+	//get input buffer:
 	//-----------------	
 	m_compressedBuf = (uint8_t*)videoBuf;
 	m_compressedBufLen = (uint64_t)videoBufLen;
@@ -259,12 +261,14 @@ SPLVframeRef* SPLVDecoder::decode_frame(uint32_t frameIdx)
 		throw std::runtime_error("");
 	}
 
-	Uint8PtrIStream decompressedFrame(decompressedBuf, (uint32_t)decompressedSize);
+	SPLVbufferReader decompressedReader = splv_buffer_reader_create(decompressedBuf, decompressedSize);
 
 	//read total number of bricks:
 	//-----------------	
 	uint32_t numBricks;
-	decompressedFrame.read((char*)&numBricks, sizeof(uint32_t));
+	SPLVerror readBricksError = splv_buffer_reader_read(&decompressedReader, &numBricks, sizeof(uint32_t));
+	if(readBricksError != SPLV_SUCCESS)
+		throw std::runtime_error("");
 
 	//create frame:
 	//-----------------
@@ -289,7 +293,9 @@ SPLVframeRef* SPLVDecoder::decode_frame(uint32_t frameIdx)
 
 	//read compressed map, generate full map:
 	//-----------------	
-	decompressedFrame.read((char*)m_compressedMap, m_compressedMapLen * sizeof(uint32_t));
+	SPLVerror readMapError = splv_buffer_reader_read(&decompressedReader, m_compressedMap, m_compressedMapLen * sizeof(uint32_t));
+	if(readMapError != SPLV_SUCCESS)
+		throw std::runtime_error("");
 
 	uint32_t curBrickIdx = 0;
 	for(uint32_t x = 0; x < mapWidth ; x++)
@@ -315,7 +321,7 @@ SPLVframeRef* SPLVDecoder::decode_frame(uint32_t frameIdx)
 	for(uint32_t i = 0; i < numBricks; i++)
 	{
 		SPLVerror brickDecodeError = splv_brick_decode(
-			decompressedFrame, 
+			&decompressedReader, 
 			&decodedFrame.bricks[curBrickIdx], 
 			m_brickPositions[i].x, 
 			m_brickPositions[i].y,

@@ -9,7 +9,6 @@
 #include <string>
 #include <emscripten/bind.h>
 #include <pthread.h>
-#include "uint8_stream.hpp"
 #include "splv_frame.h"
 
 //-------------------------//

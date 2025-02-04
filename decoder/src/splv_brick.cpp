@@ -17,8 +17,8 @@ typedef enum SPLVbrickEncodingType
 
 //-------------------------------------------//
 
-static SPLVerror _splv_brick_decode_intra(std::istream& in, SPLVbrick* out);
-static SPLVerror _splv_brick_decode_predictive(std::istream& in, SPLVbrick* out, uint32_t xMap, uint32_t yMap, uint32_t zMap, SPLVframe* lastFrame);
+static SPLVerror _splv_brick_decode_intra(SPLVbufferReader* reader, SPLVbrick* out);
+static SPLVerror _splv_brick_decode_predictive(SPLVbufferReader* reader, SPLVbrick* out, uint32_t xMap, uint32_t yMap, uint32_t zMap, SPLVframe* lastFrame);
 
 static inline uint8_t _splv_brick_decode_geom_diff_position(uint8_t* buf, uint32_t* bitIdx);
 
@@ -30,25 +30,31 @@ void splv_brick_clear(SPLVbrick* brick)
 		((uint64_t*)brick->bitmap)[i] = 0;
 }
 
-SPLVerror splv_brick_decode(std::istream& in, SPLVbrick* out, uint32_t xMap, uint32_t yMap, uint32_t zMap, SPLVframe* lastFrame)
+SPLVerror splv_brick_decode(SPLVbufferReader* reader, SPLVbrick* out, uint32_t xMap, uint32_t yMap, uint32_t zMap, SPLVframe* lastFrame)
 {
 	uint8_t encodingType;
-	in.read((char*)&encodingType, sizeof(uint8_t));
+	SPLVerror readError = splv_buffer_reader_read(reader, &encodingType, sizeof(uint8_t));
+	if(readError != SPLV_SUCCESS)
+		return readError;
 
 	if((SPLVbrickEncodingType)encodingType == SPLV_BRICK_ENCODING_TYPE_I)
-		return _splv_brick_decode_intra(in, out);
+		return _splv_brick_decode_intra(reader, out);
 	else
-		return _splv_brick_decode_predictive(in, out, xMap, yMap, zMap, lastFrame);
+		return _splv_brick_decode_predictive(reader, out, xMap, yMap, zMap, lastFrame);
 }
 
 //-------------------------------------------//
 
-static SPLVerror _splv_brick_decode_intra(std::istream& in, SPLVbrick* out)
+static SPLVerror _splv_brick_decode_intra(SPLVbufferReader* reader, SPLVbrick* out)
 {
+	SPLVerror readError;
+
 	//read number of voxels
 	//-----------------
 	uint32_t numVoxels;
-	in.read((char*)&numVoxels, sizeof(uint32_t));
+	readError = splv_buffer_reader_read(reader, &numVoxels, sizeof(uint32_t));
+	if(readError != SPLV_SUCCESS)
+		return readError;
 
 	//decode bitmap:
 	//-----------------
@@ -60,7 +66,9 @@ static SPLVerror _splv_brick_decode_intra(std::istream& in, SPLVbrick* out)
 	while(i < SPLV_BRICK_SIZE * SPLV_BRICK_SIZE * SPLV_BRICK_SIZE)
 	{
 		uint8_t curByte;
-		in.read((char*)&curByte, sizeof(uint8_t));
+		readError = splv_buffer_reader_read(reader, &curByte, sizeof(uint8_t));
+		if(readError != SPLV_SUCCESS)
+			return readError;
 		
 		if((curByte & (1u << 7)) != 0)
 		{
@@ -101,7 +109,9 @@ static SPLVerror _splv_brick_decode_intra(std::istream& in, SPLVbrick* out)
 		if((out->bitmap[arrIdx] & (uint32_t)(1 << bitIdx)) != 0)
 		{
 			uint8_t rgb[3];
-			in.read((char*)rgb, 3 * sizeof(uint8_t));
+			readError = splv_buffer_reader_read(reader, rgb, 3 * sizeof(uint8_t));
+			if(readError != SPLV_SUCCESS)
+				return readError;
 
 			uint32_t packedColor = (rgb[0] << 24) | (rgb[1] << 16) | (rgb[2] << 8) | 255;
 			out->color[idx] = packedColor;
@@ -119,15 +129,21 @@ static SPLVerror _splv_brick_decode_intra(std::istream& in, SPLVbrick* out)
 	return SPLV_SUCCESS;
 }
 
-static SPLVerror _splv_brick_decode_predictive(std::istream& in, SPLVbrick* out, uint32_t xMap, uint32_t yMap, uint32_t zMap, SPLVframe* lastFrame)
+static SPLVerror _splv_brick_decode_predictive(SPLVbufferReader* reader, SPLVbrick* out, uint32_t xMap, uint32_t yMap, uint32_t zMap, SPLVframe* lastFrame)
 {
+	SPLVerror readError;
+
 	//read geom diff
 	//-----------------
 	uint8_t numGeomDiff;
-	in.read((char*)&numGeomDiff, sizeof(uint8_t));
+	readError = splv_buffer_reader_read(reader, &numGeomDiff, sizeof(uint8_t));
+	if(readError != SPLV_SUCCESS)
+		return readError;
 
 	uint8_t geomDiffEncoded[(SPLV_BRICK_GEOM_DIFF_SIZE * SPLV_BRICK_LEN + 7) / 8];
-	in.read((char*)geomDiffEncoded, (SPLV_BRICK_GEOM_DIFF_SIZE * (uint32_t)numGeomDiff + 7) / 8);
+	readError = splv_buffer_reader_read(reader, geomDiffEncoded, (SPLV_BRICK_GEOM_DIFF_SIZE * (uint32_t)numGeomDiff + 7) / 8);
+	if(readError != SPLV_SUCCESS)
+		return readError;
 
 	//create brick geometry
 	//-----------------
@@ -160,8 +176,6 @@ static SPLVerror _splv_brick_decode_predictive(std::istream& in, SPLVbrick* out,
 
 	//read colors
 	//-----------------
-	uint32_t test = 0;
-
 	for(uint32_t z = 0; z < SPLV_BRICK_SIZE; z++)
 	for(uint32_t y = 0; y < SPLV_BRICK_SIZE; y++)
 	for(uint32_t x = 0; x < SPLV_BRICK_SIZE; x++)
@@ -171,8 +185,9 @@ static SPLVerror _splv_brick_decode_predictive(std::istream& in, SPLVbrick* out,
 			continue;
 
 		uint8_t rgb[3];
-		in.read((char*)rgb, 3 * sizeof(uint8_t));
-		test += 3;
+		readError = splv_buffer_reader_read(reader, rgb, 3 * sizeof(uint8_t));
+		if(readError != SPLV_SUCCESS)
+			return readError;
 
 		uint32_t oldColor = out->color[idx];
 		uint8_t r = (oldColor >> 24) + rgb[0];
