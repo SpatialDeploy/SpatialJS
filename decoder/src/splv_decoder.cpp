@@ -1,12 +1,11 @@
 #include "splv_decoder.hpp"
 
-#define QC_IMPLEMENTATION
-#include "quickcompress.h"
 #include "splv_morton_lut.h"
 #include "splv_brick.h"
 #include "splv_log.h"
 
-//#include <chrono>
+#define SPLV_RC_IMPLEMENTATION
+#include "splv_range_coder.h"
 
 //-------------------------//
 
@@ -43,12 +42,13 @@ SPLVDecoder::SPLVDecoder(intptr_t videoBuf, uint32_t videoBufLen)
 {
 	//create stream from input buffer:
 	//-----------------	
-	m_compressedVideo = new Uint8PtrIStream((uint8_t*)videoBuf, videoBufLen);
+	m_compressedBuf = (uint8_t*)videoBuf;
+	m_compressedBufLen = (uint64_t)videoBufLen;
 
 	//read header + validate version:
 	//-----------------
 	SPLVfileHeader header;
-	m_compressedVideo->read((char*)&header, sizeof(SPLVfileHeader));
+	memcpy(&header, m_compressedBuf, sizeof(SPLVfileHeader));
 
 	if(header.magicWord != SPLV_MAGIC_WORD)
 	{
@@ -129,8 +129,8 @@ SPLVDecoder::SPLVDecoder(intptr_t videoBuf, uint32_t videoBufLen)
 		throw std::runtime_error("");
 	}
 
-	m_compressedVideo->seekg(header.frameTablePtr, std::ios::beg);
-	m_compressedVideo->read((char*)m_frameTable, m_metadata.framecount * sizeof(uint64_t));
+	uint8_t* frameTableBuf = m_compressedBuf + header.frameTablePtr;
+	memcpy(m_frameTable, frameTableBuf, m_metadata.framecount * sizeof(uint64_t));
 
 	//init decoding frame data:
 	//-----------------
@@ -238,26 +238,28 @@ SPLVframeRef* SPLVDecoder::decode_frame(uint32_t frameIdx)
 	if(m_lastFrame != NULL && m_lastFrame->frameIdx == frameIdx)
 		return m_lastFrame;
 
-	//seek to frame:
+	//get frame pointer:
 	//-----------------
 	uint64_t frameTableEntry = m_frameTable[frameIdx];
 	SPLVframeType frameType = (SPLVframeType)(frameTableEntry >> 56);
 	uint64_t framePtr = frameTableEntry & 0x00FFFFFFFFFFFFFF;
-	
-	m_compressedVideo->seekg(framePtr, std::ios::beg);
 
-	//decompress with quickcompress:
+	uint8_t* compressedFrame = m_compressedBuf + framePtr;
+	uint64_t compressedFrameLen = m_compressedBufLen - framePtr;
+
+	//decompress:
 	//-----------------
-	std::vector<uint8_t> decompressedBuf;
-	Uint8VectorOStream decompressedStream(decompressedBuf);
+	uint8_t* decompressedBuf;
+	uint64_t decompressedSize;
 
-	if(qc_decompress(*m_compressedVideo, decompressedStream) != QC_SUCCESS)
+	SPLVerror decodeError = splv_rc_decode(compressedFrameLen, compressedFrame, &decompressedBuf, &decompressedSize);
+	if(decodeError != SPLV_SUCCESS)
 	{
 		SPLV_LOG_ERROR("error decompressing frame!");
 		throw std::runtime_error("");
 	}
 
-	Uint8PtrIStream decompressedFrame(decompressedBuf.data(), (uint32_t)decompressedBuf.size());
+	Uint8PtrIStream decompressedFrame(decompressedBuf, (uint32_t)decompressedSize);
 
 	//read total number of bricks:
 	//-----------------	
@@ -330,6 +332,10 @@ SPLVframeRef* SPLVDecoder::decode_frame(uint32_t frameIdx)
 		curBrickIdx++;
 	}
 
+	//cleanup:
+	//-----------------
+	splv_rc_free_output_buf(decompressedBuf);
+
 	//return:
 	//-----------------
 	
@@ -358,8 +364,6 @@ void* SPLVDecoder::start_decoding_thread(void* arg)
 {
 	DecodingThreadData* data = static_cast<DecodingThreadData*>(arg);
 	
-	//auto start = std::chrono::high_resolution_clock::now();
-
 	uint32_t prevDecodable = data->decoder->get_prev_decodable_frame_idx(data->frameIdx);
 	for(uint32_t i = prevDecodable; i < data->frameIdx; i++)
 	{
@@ -368,10 +372,6 @@ void* SPLVDecoder::start_decoding_thread(void* arg)
 	}
 
 	data->decodedFrame = frame_ref_add(data->decoder->decode_frame(data->frameIdx));
-
-	/*auto end = std::chrono::high_resolution_clock::now();
-	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-	std::cout << "decoding took " << duration.count() << "ms" << std::endl;*/
 
 	return nullptr;
 }

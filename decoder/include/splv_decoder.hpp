@@ -76,7 +76,8 @@ public:
 	uint32_t get_closest_decodable_frame_idx(uint32_t targetFrameIdx);
 
 private:
-	Uint8PtrIStream* m_compressedVideo;
+	uint8_t* m_compressedBuf;
+	uint64_t m_compressedBufLen;
 
 	SPLVMetadata m_metadata;
 	uint64_t* m_frameTable;
