@@ -249,7 +249,7 @@ function set_spatial(state, video)
 		let videoHeap = new Uint8Array(state.spatialModule.HEAPU8.buffer, spatialPtr, videoLen);
 		videoHeap.set(new Uint8Array(video));
 
-		decoder = new state.spatialModule.SPLVDecoder(spatialPtr, videoLen);
+		decoder = new state.spatialModule.SpatialJSdecoder(spatialPtr, videoLen);
 	}
 	catch(e)
 	{
