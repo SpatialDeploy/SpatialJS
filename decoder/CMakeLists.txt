@@ -10,6 +10,8 @@ file(GLOB_RECURSE spl_decoder_src CONFIGURE_DEPENDS
 	"SpatialStudio/splv/src/splv_brick.c" 
 	"SpatialStudio/splv/src/splv_frame.c" 
 	"SpatialStudio/splv/src/splv_decoder.c"
+	"SpatialStudio/splv/src/splv_range_coder.c"
+	"SpatialStudio/splv/src/splv_buffer_io.c"
 )
 add_executable(${PROJECT_NAME} ${spl_decoder_src})
 
