@@ -231,6 +231,8 @@ function set_spatial(state, video)
 
 		spatialState.decoder.delete();
 		state.spatialModule._free(spatialState.spatialPtr);
+
+		destroy_video_frame_bufs(spatialState.videoFrameBufs);
 	}
 
 	//set gpu buffers to empty:
@@ -382,6 +384,7 @@ async function render(state, timestamp)
 			if(state.callbacks.frameDecoded != null)
 				state.callbacks.frameDecoded(state.spatialState.decodingFrame, timestamp);
 
+			destroy_video_frame_bufs(state.videoFrameBufs);
 			state.videoFrameBufs = get_video_frame_bufs(state.raytraceState.inst, state.spatialState.decoder, frame);
 
 			state.spatialState.curFrame = state.spatialState.decodingFrame;
@@ -501,6 +504,15 @@ function get_video_frame_bufs(inst, videoDecoder, frame)
 		mapBuf : mapBufGPU,
 		brickBuf : brickBufGPU
 	};
+}
+
+function destroy_video_frame_bufs(bufs)
+{
+	if(bufs == null)
+		return;
+
+	bufs.mapBuf.destroy();
+	bufs.brickBuf.destroy();
 }
 
 //-------------------------//
