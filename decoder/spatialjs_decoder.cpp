@@ -1,6 +1,7 @@
 #include "spatialjs_decoder.hpp"
 
 #include <iostream>
+#include <chrono>
 
 //-------------------------------------------//
 
@@ -303,9 +304,16 @@ void* SpatialJSdecoder::start_decoding_thread(void* arg)
 {
 	DecodingThreadData* data = static_cast<DecodingThreadData*>(arg);
 
+	auto start = std::chrono::high_resolution_clock::now();
+
 	data->decodedFrame = frame_ref_add(
 		data->decoder->decode_frame(data->frameIdx)
 	);
+
+	auto end = std::chrono::high_resolution_clock::now();
+
+	std::chrono::duration<double, std::milli> duration = end - start;
+	std::cout << "decoding took " << duration.count() << "ms\n";
 
 	return nullptr;
 }

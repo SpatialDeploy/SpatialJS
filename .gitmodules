@@ -1,4 +1,4 @@
 [submodule "decoder/SpatialStudio"]
 	path = decoder/SpatialStudio
 	url = git@github.com:SpatialDeploy/SpatialStudio.git
-	branch = range-coding
+	branch = multithreading

@@ -12,6 +12,7 @@ file(GLOB_RECURSE spl_decoder_src CONFIGURE_DEPENDS
 	"SpatialStudio/splv/src/splv_decoder.c"
 	"SpatialStudio/splv/src/splv_range_coder.c"
 	"SpatialStudio/splv/src/splv_buffer_io.c"
+	"SpatialStudio/splv/src/splv_threading.c"
 )
 add_executable(${PROJECT_NAME} ${spl_decoder_src})
 
@@ -27,7 +28,6 @@ set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS
 	 -s NO_DISABLE_EXCEPTION_CATCHING \
 	 -s ALLOW_MEMORY_GROWTH \
 	 -pthread \
-	 -s PTHREAD_POOL_SIZE=2 \
 	 -O3 \
 	 -flto \
 	 --bind"
