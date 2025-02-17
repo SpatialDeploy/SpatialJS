@@ -1,6 +1,6 @@
 {
   "name": "spatial-player",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "3D videos on the web",
   "main": "index.js",
   "type": "module",

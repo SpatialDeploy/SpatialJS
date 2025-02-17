@@ -192,6 +192,11 @@ function get_spatial_metadata(state)
 	return state.spatialState?.decoder.get_metadata();
 }
 
+function get_decoder_memory(state)
+{
+	return state.spatialModule.HEAPU8.length;
+}
+
 function set_bounding_box(state, value)
 {
 	value = value || 'show';
@@ -725,6 +730,14 @@ class SPLVPlayer extends HTMLElement
 			return null;
 
 		return get_spatial_metadata(this.state);
+	}
+
+	get_decoder_memory()
+	{
+		if(this.state == null)
+			return null;
+
+		return get_decoder_memory(this.state);
 	}
 
 	set_spatial(spatial)
