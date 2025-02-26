@@ -1,6 +1,7 @@
 #include "spatialjs_decoder.hpp"
 
 #include <iostream>
+#include <chrono>
 
 //-------------------------------------------//
 
@@ -40,6 +41,7 @@ SpatialJSdecoder::~SpatialJSdecoder()
 {
 	splv_decoder_destroy(&m_decoder);
 
+	//TODO: what if js is still using one of the frames?
 	for(uint32_t i = 0; i < m_decodedFrames.size(); i++)
 		frame_ref_remove(m_decodedFrames[i]);
 	m_decodedFrames.clear();
@@ -240,7 +242,7 @@ SpatialJSframeRef* SpatialJSdecoder::decode_frame(uint32_t frameIdx)
 	}
 
 	SPLVframe frame;
-	SPLVerror decodeError = splv_decoder_decode_frame(&m_decoder, frameIdx, numDependencies, dependencies, &frame);
+	SPLVerror decodeError = splv_decoder_decode_frame(&m_decoder, frameIdx, numDependencies, dependencies, &frame, NULL);
 	if(decodeError != SPLV_SUCCESS)
 	{
 		delete[] dependencyIndices;
@@ -303,9 +305,15 @@ void* SpatialJSdecoder::start_decoding_thread(void* arg)
 {
 	DecodingThreadData* data = static_cast<DecodingThreadData*>(arg);
 
+	//auto start = std::chrono::high_resolution_clock::now();
+
 	data->decodedFrame = frame_ref_add(
 		data->decoder->decode_frame(data->frameIdx)
 	);
+
+	//auto end = std::chrono::high_resolution_clock::now();
+	//std::chrono::duration<double, std::milli> duration = end - start;
+	//std::cout << "decoding took " << duration.count() << "ms" << std::endl;
 
 	return nullptr;
 }
