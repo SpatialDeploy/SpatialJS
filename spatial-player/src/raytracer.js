@@ -396,7 +396,8 @@ function create_bind_groups(inst, raytracePipeline, quadPipeline, finalTexture, 
 			{ binding: 0, resource: textureView },
 			{ binding: 1, resource: { buffer: raytraceUniformBuf } },
 			{ binding: 2, resource: { buffer: videoFrameBufs.mapBuf } },
-			{ binding: 3, resource: { buffer: videoFrameBufs.brickBuf } }
+			{ binding: 3, resource: { buffer: videoFrameBufs.brickBuf } },
+			{ binding: 4, resource: { buffer: videoFrameBufs.voxelBuf } }
 		]
 	});
 

@@ -456,17 +456,20 @@ function get_video_frame_bufs(inst, videoDecoder, frame)
 	var empty;
 	var mapBuf;
 	var brickBuf;
+	var voxelBuf;
 	if(frame == null || frame.mapBuffer.length == 0 || frame.brickBuffer.length == 0)
 	{
 		empty = true;
 		mapBuf = new Uint32Array([0]); //dummy buffers so webgpu doesnt yell at us
 		brickBuf = new Uint32Array([0]);
+		voxelBuf = new Uint32Array([0]);
 	}
 	else
 	{
 		empty = false;
 		mapBuf = frame.mapBuffer;
 		brickBuf = frame.brickBuffer;
+		voxelBuf = frame.voxelBuffer;
 	}
 
 	//extract size from metadata:
@@ -498,6 +501,13 @@ function get_video_frame_bufs(inst, videoDecoder, frame)
 	});
 	inst.device.queue.writeBuffer(brickBufGPU, 0, brickBuf);
 
+	let voxelBufGPU = inst.device.createBuffer({
+		label: 'voxel buf',
+		size: voxelBuf.length * Uint32Array.BYTES_PER_ELEMENT,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+	});
+	inst.device.queue.writeBuffer(voxelBufGPU, 0, voxelBuf);
+
 	//cleanup + return:
 	//-----------------
 	if(frame != null && videoDecoder != null)
@@ -507,7 +517,8 @@ function get_video_frame_bufs(inst, videoDecoder, frame)
 		volumeSize: size,
 		empty: empty,
 		mapBuf : mapBufGPU,
-		brickBuf : brickBufGPU
+		brickBuf : brickBufGPU,
+		voxelBuf : voxelBufGPU
 	};
 }
 
@@ -518,6 +529,7 @@ function destroy_video_frame_bufs(bufs)
 
 	bufs.mapBuf.destroy();
 	bufs.brickBuf.destroy();
+	bufs.voxelBuf.destroy();
 }
 
 //-------------------------//

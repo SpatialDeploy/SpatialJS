@@ -11,6 +11,7 @@
 #include <vector>
 #include <pthread.h>
 #include "spatialstudio/splv_frame.h"
+#include "spatialstudio/splv_frame_compact.h"
 #include "spatialstudio/splv_decoder.h"
 
 //-------------------------------------------//
@@ -29,23 +30,13 @@ struct SpatialJSmetadata
 };
 
 /**
- * reference to a frame, used for memory management
- */
-struct SpatialJSframeRef
-{
-	SPLVframe frame;
-	uint32_t frameIdx;
-	int32_t refCount;
-};
-
-/**
  * front-fracing frame, for interface with JS
  */
 class SpatialJSframeEmscripten
 {
 public:
-	SpatialJSframeEmscripten(const emscripten::val& mapBuf, const emscripten::val& brickBuf, SpatialJSframeRef* frame) :
-		m_mapBuf(mapBuf), m_brickBuf(brickBuf), m_rawFrame(frame)
+	SpatialJSframeEmscripten(const emscripten::val& mapBuf, const emscripten::val& brickBuf, const emscripten::val& voxelBuf, SPLVframeCompact* frame) :
+		m_mapBuf(mapBuf), m_brickBuf(brickBuf), m_voxelBuf(voxelBuf), m_rawFrame(frame)
 	{
 
 	}
@@ -59,13 +50,15 @@ public:
 	bool decoded() const { return m_rawFrame != nullptr; }
 	emscripten::val get_map_buf() const { return m_mapBuf; }
 	emscripten::val get_brick_buf() const { return m_brickBuf; }
-	SpatialJSframeRef* get_raw_frame() const { return m_rawFrame; }
+	emscripten::val get_voxel_buf() const { return m_voxelBuf; }
+	SPLVframeCompact* get_raw_frame() const { return m_rawFrame; }
 
 private:
 	emscripten::val m_mapBuf = emscripten::val::undefined();
 	emscripten::val m_brickBuf = emscripten::val::undefined();
+	emscripten::val m_voxelBuf = emscripten::val::undefined();
 
-	SpatialJSframeRef* m_rawFrame;
+	SPLVframeCompact* m_rawFrame = nullptr;
 };
 
 //-------------------------------------------//
@@ -91,7 +84,7 @@ private:
 	uint64_t m_encodedBufLen;
 
 	SPLVdecoder m_decoder;
-	std::vector<SpatialJSframeRef*> m_decodedFrames;
+	std::vector<SPLVframeIndexed> m_decodedFrames;
 
 	SpatialJSmetadata m_metadata;
 
@@ -102,20 +95,17 @@ private:
 		SpatialJSdecoder* decoder;
 
 		uint32_t frameIdx;
-		SpatialJSframeRef* decodedFrame;
+		SPLVframeCompact* decodedFrame;
 		
 		pthread_t thread;
 		bool active;
 	};
 	std::unique_ptr<DecodingThreadData> m_decodingThreadData;
 
-	SpatialJSframeRef* decode_frame(uint32_t frameIdx);
+	SPLVframeCompact* decode_frame(uint32_t frameIdx);
 	static void* start_decoding_thread(void* arg);
 
 	int64_t search_decoded_frames(uint64_t frameIdx);
-
-	static void frame_ref_remove(SpatialJSframeRef* ref);
-	static SpatialJSframeRef* frame_ref_add(SpatialJSframeRef* ref);
 
 	static void log_error(std::string msg);
 	static void log_warning(std::string msg);

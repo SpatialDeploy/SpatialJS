@@ -9,6 +9,7 @@ file(GLOB_RECURSE spl_decoder_src CONFIGURE_DEPENDS
 	"spatialjs_decoder.cpp" 
 	"SpatialStudio/splv/src/splv_brick.c" 
 	"SpatialStudio/splv/src/splv_frame.c" 
+	"SpatialStudio/splv/src/splv_frame_compact.c" 
 	"SpatialStudio/splv/src/splv_decoder.c"
 	"SpatialStudio/splv/src/splv_range_coder.c"
 	"SpatialStudio/splv/src/splv_buffer_io.c"

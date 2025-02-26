@@ -10,8 +10,7 @@ export const RAYTRACER_SHADER_SRC = `
 
 	const BRICK_SIZE = 8;
 	const BRICK_BITMAP_LEN = (((BRICK_SIZE * BRICK_SIZE * BRICK_SIZE + 31) & (~31)) / 32);
-	const BRICK_COLORS_LEN = (BRICK_SIZE * BRICK_SIZE * BRICK_SIZE);
-	const BRICK_STRIDE = (BRICK_BITMAP_LEN + BRICK_COLORS_LEN);
+	const BRICK_STRIDE = (BRICK_BITMAP_LEN + 1);
 
 	const EMPTY_BRICK = 0xFFFFFFFF;
 
@@ -40,6 +39,7 @@ export const RAYTRACER_SHADER_SRC = `
 
 	@group(0) @binding(2) var<storage, read> u_map : array<u32>;
 	@group(0) @binding(3) var<storage, read> u_bricks : array<u32>;
+	@group(0) @binding(4) var<storage, read> u_voxels : array<u32>;
 
 	//-------------------------//
 
@@ -82,8 +82,21 @@ export const RAYTRACER_SHADER_SRC = `
 	fn get_voxel_color(brick : u32, pos : vec3u) -> vec3f
 	{
 		let idx = pos.x + BRICK_SIZE * (pos.y + BRICK_SIZE * pos.z);
-		let packedColor = u_bricks[brick * BRICK_STRIDE + BRICK_BITMAP_LEN + idx];
+		var colorOffset = u_bricks[brick * BRICK_STRIDE + BRICK_BITMAP_LEN];
 
+		let bitmapIdx = idx / 32;
+		for(var i = 0u; i <= bitmapIdx; i++)
+		{
+			var bits = u_bricks[brick * BRICK_STRIDE + i];
+			if(i == bitmapIdx)
+			{
+				bits &= (1u << (idx % 32)) - 1;
+			}
+
+			colorOffset += countOneBits(bits);
+		}
+
+		let packedColor = u_voxels[colorOffset];
 		let r = (packedColor >> 24) & 0xFF;
 		let g = (packedColor >> 16) & 0xFF;
 		let b = (packedColor >> 8) & 0xFF;

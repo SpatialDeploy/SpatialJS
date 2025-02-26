@@ -41,9 +41,11 @@ SpatialJSdecoder::~SpatialJSdecoder()
 {
 	splv_decoder_destroy(&m_decoder);
 
-	//TODO: what if js is still using one of the frames?
 	for(uint32_t i = 0; i < m_decodedFrames.size(); i++)
-		frame_ref_remove(m_decodedFrames[i]);
+	{
+		splv_frame_destroy(m_decodedFrames[i].frame);
+		delete m_decodedFrames[i].frame;
+	}
 	m_decodedFrames.clear();
 
 	if(m_decodingThreadData->active)
@@ -135,7 +137,9 @@ void SpatialJSdecoder::start_decoding_frame(uint32_t idx)
 		}
 
 		m_decodingThreadData->active = false;
-		frame_ref_remove(m_decodingThreadData->decodedFrame);
+
+		splv_frame_compact_destroy(m_decodingThreadData->decodedFrame);
+		delete m_decodingThreadData->decodedFrame;
 	}
 
 	//start decoding thread:
@@ -164,33 +168,30 @@ SpatialJSframeEmscripten SpatialJSdecoder::try_get_decoded_frame()
 
 	//create memory views:
 	//-----------------
-	SpatialJSframeRef* decodedFrameRef = m_decodingThreadData->decodedFrame;
-	SPLVframe decodedFrame = decodedFrameRef->frame;
+	SPLVframeCompact* decodedFrame = m_decodingThreadData->decodedFrame;
 
-	uint64_t mapSize = decodedFrame.width * decodedFrame.height * decodedFrame.depth * sizeof(uint32_t);
-	emscripten::val mapBuf(emscripten::typed_memory_view(mapSize, (uint8_t*)decodedFrame.map));
+	uint64_t mapSize = decodedFrame->width * decodedFrame->height * decodedFrame->depth * sizeof(uint32_t);
+	emscripten::val mapBuf(emscripten::typed_memory_view(mapSize, (uint8_t*)decodedFrame->map));
 
-	uint64_t bricksSize = decodedFrame.bricksLen * sizeof(SPLVbrick);
-	emscripten::val brickBuf(emscripten::typed_memory_view(bricksSize, (uint8_t*)decodedFrame.bricks));
+	uint64_t bricksSize = decodedFrame->numBricks * sizeof(SPLVbrickCompact);
+	emscripten::val brickBuf(emscripten::typed_memory_view(bricksSize, (uint8_t*)decodedFrame->bricks));
 
-	return SpatialJSframeEmscripten(mapBuf, brickBuf, decodedFrameRef);
+	uint64_t voxelsSize = decodedFrame->numVoxels * sizeof(uint32_t);
+	emscripten::val voxelBuf(emscripten::typed_memory_view(voxelsSize, (uint8_t*)decodedFrame->voxels));
+
+	return SpatialJSframeEmscripten(mapBuf, brickBuf, voxelBuf, decodedFrame);
 }
 
 void SpatialJSdecoder::free_frame(const SpatialJSframeEmscripten& frame)
 {
-	frame_ref_remove(frame.get_raw_frame());
+	splv_frame_compact_destroy(frame.get_raw_frame());
+	delete frame.get_raw_frame();
 }
 
 //-------------------------------------------//
 
-SpatialJSframeRef* SpatialJSdecoder::decode_frame(uint32_t frameIdx)
+SPLVframeCompact* SpatialJSdecoder::decode_frame(uint32_t frameIdx)
 {
-	//check if frame was already decoded:
-	//-----------------
-	int64_t searchResult = search_decoded_frames(frameIdx);
-	if(searchResult >= 0)
-		return m_decodedFrames[searchResult];
-
 	//check if dependencies were already decoded:
 	//-----------------
 	uint64_t numDependencies;
@@ -234,40 +235,21 @@ SpatialJSframeRef* SpatialJSdecoder::decode_frame(uint32_t frameIdx)
 
 	//decode:
 	//-----------------
-	SPLVframeIndexed* dependencies = new SPLVframeIndexed[numDependencies];
-	for(uint32_t i = 0; i < numDependencies; i++)
-	{
-		dependencies[i].index = dependencyIndices[i];
-		dependencies[i].frame = &m_decodedFrames[search_decoded_frames(dependencyIndices[i])]->frame;
-	}
+	SPLVframe* frame = new SPLVframe;
+	SPLVframeCompact* frameCompact = new SPLVframeCompact;
 
-	SPLVframe frame;
-	SPLVerror decodeError = splv_decoder_decode_frame(&m_decoder, frameIdx, numDependencies, dependencies, &frame, NULL);
+	SPLVerror decodeError = splv_decoder_decode_frame(
+		&m_decoder, frameIdx, 
+		m_decodedFrames.size(), m_decodedFrames.data(), 
+		frame, frameCompact
+	);
 	if(decodeError != SPLV_SUCCESS)
 	{
 		delete[] dependencyIndices;
-		delete[] dependencies;
 
 		log_error("failed to decode frame");
 		throw std::runtime_error("");
 	}
-
-	//create frame ref:
-	//-----------------
-	SpatialJSframeRef* frameRef = new SpatialJSframeRef();
-	if(!frameRef)
-	{
-		splv_frame_destroy(&frame);
-		delete[] dependencyIndices;
-		delete[] dependencies;
-
-		log_error("failed to allocate frame ref");
-		throw std::runtime_error("");
-	}
-
-	frameRef->frame = frame;
-	frameRef->frameIdx = frameIdx;
-	frameRef->refCount = 0;
 
 	//free frames which are no longer dependencies:
 	//-----------------
@@ -276,7 +258,7 @@ SpatialJSframeRef* SpatialJSdecoder::decode_frame(uint32_t frameIdx)
 		bool found = false;
 		for(uint32_t j = 0; j < numDependencies; j++)
 		{
-			if(m_decodedFrames[i]->frameIdx == dependencyIndices[j])
+			if(m_decodedFrames[i].index == dependencyIndices[j])
 			{
 				found = true;
 				break;
@@ -285,20 +267,21 @@ SpatialJSframeRef* SpatialJSdecoder::decode_frame(uint32_t frameIdx)
 
 		if(!found)
 		{
-			frame_ref_remove(m_decodedFrames[i]);
+			splv_frame_destroy(m_decodedFrames[i].frame);
+			delete m_decodedFrames[i].frame;
+
 			m_decodedFrames.erase(m_decodedFrames.begin() + i);
 			i--;
 		}
 	}
 
-	m_decodedFrames.push_back(frame_ref_add(frameRef));
+	m_decodedFrames.push_back({ frameIdx, frame });
 
 	//cleanup + return:
 	//-----------------
 	delete[] dependencyIndices;
-	delete[] dependencies;
 
-	return frameRef;
+	return frameCompact;
 }
 
 void* SpatialJSdecoder::start_decoding_thread(void* arg) 
@@ -307,9 +290,7 @@ void* SpatialJSdecoder::start_decoding_thread(void* arg)
 
 	//auto start = std::chrono::high_resolution_clock::now();
 
-	data->decodedFrame = frame_ref_add(
-		data->decoder->decode_frame(data->frameIdx)
-	);
+	data->decodedFrame = data->decoder->decode_frame(data->frameIdx);
 
 	//auto end = std::chrono::high_resolution_clock::now();
 	//std::chrono::duration<double, std::milli> duration = end - start;
@@ -324,7 +305,7 @@ int64_t SpatialJSdecoder::search_decoded_frames(uint64_t frameIdx)
 {
 	for(uint32_t i = 0; i < m_decodedFrames.size(); i++)
 	{
-		if(m_decodedFrames[i]->frameIdx == frameIdx)
+		if(m_decodedFrames[i].index == frameIdx)
 			return i;
 	}
 
@@ -332,22 +313,6 @@ int64_t SpatialJSdecoder::search_decoded_frames(uint64_t frameIdx)
 }
 
 //-------------------------------------------//
-
-void SpatialJSdecoder::frame_ref_remove(SpatialJSframeRef* ref)
-{
-	ref->refCount--;
-	if(ref->refCount <= 0)
-	{
-		splv_frame_destroy(&ref->frame);
-		delete ref;
-	}
-}
-
-SpatialJSframeRef* SpatialJSdecoder::frame_ref_add(SpatialJSframeRef* ref)
-{
-	ref->refCount++;
-	return ref;
-}
 
 void SpatialJSdecoder::log_error(std::string msg)
 {
@@ -375,6 +340,7 @@ EMSCRIPTEN_BINDINGS(splv_decoder) {
 		.property("decoded", &SpatialJSframeEmscripten::decoded)
 		.property("mapBuffer", &SpatialJSframeEmscripten::get_map_buf)
 		.property("brickBuffer", &SpatialJSframeEmscripten::get_brick_buf)
+		.property("voxelBuffer", &SpatialJSframeEmscripten::get_voxel_buf)
 		;
 
 	emscripten::class_<SpatialJSdecoder>("SpatialJSdecoder")
