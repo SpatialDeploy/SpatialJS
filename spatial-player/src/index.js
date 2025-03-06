@@ -980,6 +980,9 @@ class SPLVPlayer extends HTMLElement
 		const botColorStr = this.getAttribute('bot-color') || '0 0 0 0';
 		const botColor = botColorStr.split(' ').map(Number).map((x) => x / 255.0);
 
+		const videoControlsStr = this.getAttribute('video-controls') || 'show';
+		this._set_video_controls(videoControlsStr);
+
 		//start player:
 		//-----------------
 		const attributes = {
