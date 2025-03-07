@@ -236,13 +236,7 @@ function set_spatial(state, video)
 
 		spatialState.decoder.delete();
 		state.spatialModule._free(spatialState.spatialPtr);
-
-		destroy_video_frame_bufs(spatialState.videoFrameBufs);
 	}
-
-	//set gpu buffers to empty:
-	//-----------------
-	state.videoFrameBufs = get_video_frame_bufs(state.raytraceState.inst, null, null);
 
 	//allocate memory + create decoder:
 	//-----------------

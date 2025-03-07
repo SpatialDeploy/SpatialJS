@@ -39,8 +39,12 @@ SpatialJSdecoder::SpatialJSdecoder(intptr_t videoBuf, uint32_t videoBufLen)
 
 SpatialJSdecoder::~SpatialJSdecoder()
 {
-	splv_decoder_destroy(&m_decoder);
-
+	if(m_decodingThreadData->active)
+	{
+		pthread_join(m_decodingThreadData->thread, nullptr);
+		m_decodingThreadData->active = false;
+	}
+	
 	for(uint32_t i = 0; i < m_decodedFrames.size(); i++)
 	{
 		splv_frame_destroy(m_decodedFrames[i].frame);
@@ -48,11 +52,7 @@ SpatialJSdecoder::~SpatialJSdecoder()
 	}
 	m_decodedFrames.clear();
 
-	if(m_decodingThreadData->active)
-	{
-		pthread_join(m_decodingThreadData->thread, nullptr);
-		m_decodingThreadData->active = false;
-	}
+	splv_decoder_destroy(&m_decoder);
 }
 
 SpatialJSmetadata SpatialJSdecoder::get_metadata()
