@@ -55,6 +55,20 @@
 				console.warn("dropped frames " + d + " at time " + t);
 			});
 
+			spatialComponent.set_callback_camera_moved((c) => {
+				console.log(c);
+			});
+
+			await new Promise(r => setTimeout(r, 3000));
+
+			spatialComponent.set_camera({
+				radiusMin: 0.0,
+				radiusMax: 10.0,
+				radius: 5.0,
+				theta: 0.0,
+				phi: 0.0
+			});
+
 			/*while(true)
 			{
 				await new Promise(r => setTimeout(r, 3000));

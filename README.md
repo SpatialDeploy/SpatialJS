@@ -68,6 +68,7 @@ If you wish to set properties of the currently playing spatial, such as the curr
 - `SPLVPlayer.set_scrubbing(value: bool)`: same as `set_playing`, but doesn't update the visual pause/play button. Useful for if you want to implement a scrubber yourself.
 - `SPLVPlayer.set_scrubber_position(value: Number)`: sets the position of the visual playhead, does NOT affect the actual spatial. `value` must be in the range `[0, 100]`.
 - `SPLVPlayer.set_time(value: Number)`: sets the current time within the spatial to play from, updating the scrubber position if the `update-scrubber-position` attribute is `"true"`.
+- `SPLVPlayer.set_camera(camera: Object)`: sets the current camera position/paramters. The camera object must have attributes `radiusMin`, `radiusMax`, `radius`, `theta` and `phi`. These are the standard mathematical quantities used for spherical coordinates.
 
 You can also set callbacks at various important events in the playing of a spatial, here is an example of each of them:
 ```js
@@ -99,6 +100,10 @@ spatialComponent.set_callback_render((t) => {
 
 spatialComponent.set_callback_dropped_frames((d, t) => {
     console.warn("dropped frames " + d + " at time " + t);
+});
+
+spatialComponent.set_callback_camera_moved((c) => {
+    console.log(c);
 });
 ```
 

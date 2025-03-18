@@ -113,6 +113,9 @@ async function main(root, attributes)
 	
 	window.addEventListener('mousemove', (event) => {
 		camera_mouse_moved(state.cameraState, event);
+
+		if(state.cameraState.rotating && state.callbacks.cameraMoved != null)
+			state.callbacks.cameraMoved(camera_get_params(state.cameraState));
 	});
 	
 	window.addEventListener('mouseup', (event) => {		
@@ -121,11 +124,17 @@ async function main(root, attributes)
 
 	window.addEventListener('dblclick', (event) => {
 		camera_double_click(state.cameraState, event);
+
+		if(state.callbacks.cameraMoved != null)
+			state.callbacks.cameraMoved(camera_get_params(state.cameraState));
 	});
 
 	canvas.addEventListener('wheel', (event) => {		
 		camera_scrolled(state.cameraState, event.deltaY);
 		event.preventDefault();
+
+		if(state.callbacks.cameraMoved != null)
+			state.callbacks.cameraMoved(camera_get_params(state.cameraState));
 	});
 
 	canvas.addEventListener('touchstart', (event) => {
@@ -135,6 +144,9 @@ async function main(root, attributes)
 	window.addEventListener('touchmove', (event) => {
 		camera_touch_moved(state.cameraState, event);
 		event.preventDefault();
+
+		if(state.cameraState.rotating && state.callbacks.cameraMoved != null)
+			state.callbacks.cameraMoved(camera_get_params(state.cameraState));
 	}, { passive: false });
 	
 	window.addEventListener('touchend', (event) => {
@@ -335,6 +347,15 @@ function set_time(state, time)
 
 	if(state.callbacks.setTime != null)
 		state.callbacks.setTime(time);
+}
+
+function set_camera(state, camera)
+{
+	state.cameraState.radiusMin = camera.radiusMin;
+	state.cameraState.radiusMax = camera.radiusMax;
+	state.cameraState.radius = camera.radius;
+	state.cameraState.theta = camera.theta;
+	state.cameraState.phi = camera.phi;
 }
 
 //-------------------------//
@@ -584,6 +605,18 @@ function camera_get_view(cam)
 	);
 }
 
+function camera_get_params(camera)
+{
+	return {
+		radiusMin: camera.radiusMin,
+		radiusMax: camera.radiusMax,
+		
+		radius: camera.radius,
+		theta: camera.theta,
+		phi: camera.phi,
+	}
+}
+
 function camera_mouse_down(camera, event)
 {
 	if(event.button === 0)
@@ -618,6 +651,7 @@ function camera_mouse_moved(camera, event)
 		camera.theta -= deltaX * camera.sens;
 		camera.phi += deltaY * camera.sens;
 
+		camera.theta %= Math.PI * 2;
 		camera.phi = Math.max(camera.phi, -Math.PI / 2);
 		camera.phi = Math.min(camera.phi, Math.PI / 2);
 	}
@@ -679,9 +713,11 @@ function camera_touch_moved(camera, event)
 		
 		camera.theta -= deltaX * camera.sens;
 		camera.phi += deltaY * camera.sens;
+
+		camera.theta %= Math.PI * 2;
 		camera.phi = Math.max(camera.phi, -Math.PI / 2);
 		camera.phi = Math.min(camera.phi, Math.PI / 2);
-		
+
 		camera.startX = touch.clientX;
 		camera.startY = touch.clientY;
 	} 
@@ -774,6 +810,11 @@ class SPLVPlayer extends HTMLElement
 		this._defer_until_initialized(() => set_time(this.state, time));
 	}
 
+	set_camera(camera)
+	{
+		this._defer_until_initialized(() => set_camera(this.state, camera));
+	}
+
 	//-------------------------//
 
 	set_callback_pause_play(callback)
@@ -809,6 +850,11 @@ class SPLVPlayer extends HTMLElement
 	set_callback_dropped_frames(callback)
 	{
 		this._defer_until_initialized(() => this.state.callbacks.droppedFrames = callback);
+	}
+
+	set_callback_camera_moved(callback)
+	{
+		this._defer_until_initialized(() => this.state.callbacks.cameraMoved = callback);
 	}
 
 	//-------------------------//
